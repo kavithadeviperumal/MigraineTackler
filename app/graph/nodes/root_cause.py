@@ -1,0 +1,121 @@
+import json
+import re
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import SystemMessage, HumanMessage
+
+from app.graph.state import MigraineState
+from app.config import settings
+
+_llm = ChatGoogleGenerativeAI(
+    model="gemini-2.0-flash",
+    google_api_key=settings.google_api_key,
+    max_tokens=2048,
+)
+
+SYSTEM_PROMPT = """\
+You are the Root Cause Agent for MigraineTackler. You receive a synthesis of a user's migraine \
+trigger patterns, history, and statistics. Your job is to form a root cause hypothesis — the most \
+likely underlying driver of their migraine condition.
+
+You are a knowledgeable clinical analyst. You do not diagnose. You reason from patterns in \
+self-reported data to the most probable physiological or behavioral mechanism.
+
+## Migraine Subtypes to Consider
+- hormonal_migraine — cycle-linked, estrogen-drop driven
+- sleep_disorder_migraine — sleep deprivation or inconsistency is primary driver
+- stress_tension_migraine — chronic stress + neck tension + emotional load
+- environmental_migraine — barometric pressure, AQI, chemical/fragrance dominant
+- dietary_migraine — food triggers (caffeine, alcohol, specific foods) primary
+- moh_migraine — medication overuse is perpetuating the cycle
+- chronic_migraine — ≥15 days/month, mechanism less trigger-specific
+- mixed_trigger_migraine — multiple equally weighted contributors, no single dominant driver
+
+## What to Reason Over
+- Which confirmed triggers have the highest co-occurrence with migraine days?
+- Is there a consistent physiological mechanism tying the triggers together?
+- Do the stats (frequency, trend, triptan use) suggest MOH risk?
+- Is the pattern improving or worsening — and why?
+
+## Output Format
+
+### ROOT CAUSE SUMMARY
+3–5 sentences. Explain the hypothesis and the reasoning behind it in plain language. \
+Be specific — name the mechanism, not just the trigger. \
+If data is insufficient for a confident hypothesis, say so and describe what's still needed.
+
+### STRUCTURED DATA
+```json
+{
+  "hypothesis": "one clear sentence stating the most likely root cause",
+  "migraine_subtype": "one of the subtypes above",
+  "confidence": "low | medium | high",
+  "reasoning": "2–3 sentences explaining what data supports this hypothesis",
+  "what_to_watch": ["next data point or pattern to confirm or rule out this hypothesis"]
+}
+```
+"""
+
+
+def _build_context(state: MigraineState) -> str:
+    lst = lambda v: ", ".join(v) if v else "none yet"
+
+    stats = state.get("deterministic_stats", {})
+    lines = [
+        "=== TRIGGER PATTERNS ===",
+        f"Confirmed triggers:  {lst(state.get('confirmed_triggers', []))}",
+        f"Suspected triggers:  {lst(state.get('suspected_triggers', []))}",
+        f"Ruled out:           {lst(state.get('ruled_out_triggers', []))}",
+        "",
+        "=== PATTERN SUMMARY (from Pattern Agent) ===",
+        state.get("session_history_summary", "Not yet available."),
+        "",
+        "=== 30-DAY STATS ===",
+        f"Migraine days (30d):   {stats.get('migraine_days_last_30d', 0)}",
+        f"Avg pain level (30d):  {stats.get('avg_pain_level_last_30d', 0)}",
+        f"Trend:                 {stats.get('pain_trend_direction', 'stable')}",
+        f"Triptan days (30d):    {stats.get('triptan_days_last_30d', 0)}",
+        f"NSAID days (30d):      {stats.get('nsaid_days_last_30d', 0)}",
+        f"MOH alert active:      {stats.get('moh_alert_active', False)}",
+        "",
+        "=== RESEARCH FINDINGS ===",
+        "\n".join(state.get("research_findings", [])) or "None recorded.",
+        "",
+        "=== PRIOR HYPOTHESIS ===",
+        state.get("current_root_cause_hypothesis", "None established yet."),
+    ]
+    return "\n".join(lines)
+
+
+def _parse_structured(text: str) -> dict:
+    match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
+    if not match:
+        return {}
+    try:
+        return json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return {}
+
+
+def run(state: MigraineState) -> dict:
+    context = _build_context(state)
+
+    response = _llm.invoke([
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content=context),
+    ])
+
+    text = response.content
+    structured = _parse_structured(text)
+
+    updates: dict = {
+        "current_agent": "root_cause",
+        "messages": [response],
+    }
+
+    if structured.get("hypothesis"):
+        updates["current_root_cause_hypothesis"] = structured["hypothesis"]
+    if structured.get("migraine_subtype"):
+        updates["migraine_subtype"] = structured["migraine_subtype"]
+
+    return updates
