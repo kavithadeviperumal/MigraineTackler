@@ -4,36 +4,33 @@ from contextlib import contextmanager
 from datetime import date, datetime, time, timedelta
 from components.time_picker import time_picker as _time_picker_widget
 
-API_BASE = "http://localhost:8000"
+API_BASE = st.secrets.get("API_BASE", "http://localhost:8000")
 
 _MIGRAINE_MEDICATIONS = [
-    "sumatriptan", "rizatriptan", "zolmitriptan", "naratriptan",
-    "almotriptan", "eletriptan", "frovatriptan",
-    "ubrogepant", "rimegepant", "zavegepant",
-    "lasmiditan",
-    "ergotamine", "dihydroergotamine",
-    "ibuprofen", "naproxen", "acetaminophen", "aspirin",
-    "acetaminophen + aspirin + caffeine",
-    "metoclopramide", "prochlorperazine", "ondansetron", "promethazine",
-    "propranolol", "metoprolol", "timolol", "atenolol",
-    "topiramate", "valproate", "divalproex", "gabapentin",
-    "amitriptyline", "nortriptyline", "venlafaxine",
-    "verapamil",
-    "erenumab", "fremanezumab", "galcanezumab", "eptinezumab",
-    "onabotulinumtoxinA", "candesartan", "lisinopril",
+    "acetaminophen", "acetaminophen + aspirin + caffeine", "almotriptan",
+    "amitriptyline", "aspirin", "atenolol", "candesartan",
+    "dihydroergotamine", "divalproex", "eletriptan", "eptinezumab",
+    "erenumab", "ergotamine", "fremanezumab", "frovatriptan",
+    "gabapentin", "galcanezumab", "ibuprofen", "lasmiditan",
+    "lisinopril", "metoclopramide", "metoprolol", "naproxen",
+    "naratriptan", "nortriptyline", "onabotulinumtoxinA", "ondansetron",
+    "prochlorperazine", "promethazine", "propranolol", "rimegepant",
+    "rizatriptan", "sumatriptan", "timolol", "topiramate",
+    "ubrogepant", "valproate", "venlafaxine", "verapamil",
+    "zavegepant", "zolmitriptan",
 ]
 
 _ALL_FOODS = [
-    "alcohol", "beer", "red_wine", "caffeine", "chocolate",
-    "aged_cheese", "processed_meat", "MSG", "artificial_sweeteners",
-    "citrus", "nuts", "onions", "garlic", "avocado", "bananas",
-    "fermented_foods", "pickled_foods", "smoked_fish", "gluten",
-    "pizza", "yeast_extract", "beans_legumes", "tyramine_rich_foods",
+    "aged_cheese", "alcohol", "artificial_sweeteners", "avocado",
+    "bananas", "beans_legumes", "beer", "caffeine", "chocolate",
+    "citrus", "fermented_foods", "garlic", "gluten", "MSG",
+    "nuts", "onions", "pickled_foods", "pizza", "processed_meat",
+    "red_wine", "smoked_fish", "tyramine_rich_foods", "yeast_extract",
 ]
 
 _SOS_QUICK_MEDS = [
-    "None yet", "sumatriptan", "rizatriptan", "zolmitriptan",
-    "ubrogepant", "rimegepant", "ibuprofen", "acetaminophen", "other",
+    "None yet", "acetaminophen", "ibuprofen", "rimegepant",
+    "rizatriptan", "sumatriptan", "ubrogepant", "zolmitriptan", "other",
 ]
 
 _HORMONAL_STATUSES = {
@@ -333,7 +330,7 @@ def _render_onboarding(existing_profile: dict):
             _onboarding_progress()
             st.subheader("Which foods do you suspect trigger your migraines?")
             st.caption("Select all that apply — or choose 'None identified yet' if you're not sure.")
-            trigger_options = ["None identified yet"] + _ALL_FOODS
+            trigger_options = ["None identified yet"] + _ref_foods
             default_triggers = data.get("_food_trigger_labels", [])
             selected = st.multiselect(
                 "Food triggers",
@@ -531,7 +528,7 @@ def _render_onboarding(existing_profile: dict):
             st.subheader("Supplements *(if any)*")
             supps = st.multiselect(
                 "Supplements",
-                ["magnesium", "riboflavin_B2", "CoQ10", "melatonin", "butterbur", "feverfew"],
+                ["butterbur", "CoQ10", "feverfew", "magnesium", "melatonin", "riboflavin_B2"],
                 default=data.get("supplements") or [],
                 label_visibility="collapsed",
             )
@@ -584,6 +581,7 @@ def _submit_log(payload: dict):
     result = api_post("/logs/", payload)
 
     if result:
+        st.session_state.pop("ref_foods", None)  # new food may have been logged; refresh on next rerun
         log_id = result["log"]["id"]
         st.session_state.intake_messages = []
 
@@ -616,6 +614,12 @@ if not st.session_state.user_id:
 # ── Onboarding gate ───────────────────────────────────────────────────────────
 
 _profile = api_get("/profile/me") or {}
+
+if "ref_foods" not in st.session_state:
+    _rfd = api_get("/profile/me/reference-foods")
+    st.session_state.ref_foods = _rfd.get("foods", []) if _rfd else []
+_ref_foods: list[str] = st.session_state.ref_foods or _ALL_FOODS
+
 if not _profile.get("onboarding_complete"):
     if _profile:
         st.session_state.onboarding_data = {
@@ -720,8 +724,9 @@ if page == "📋 Log Entry":
         _agent_triggers = set(
             _free_state.get("confirmed_triggers", []) + _free_state.get("suspected_triggers", [])
         )
+        _ref_foods_set = set(_ref_foods)
         _quick_food_opts = list(dict.fromkeys(
-            _known_food_triggers + [t for t in _agent_triggers if t in _ALL_FOODS]
+            _known_food_triggers + [t for t in _agent_triggers if t in _ref_foods_set]
         ))
 
         with st.form("log_form_free", clear_on_submit=False):
@@ -741,7 +746,7 @@ if page == "📋 Log Entry":
             else:
                 trigger_foods_today = st.multiselect(
                     "Potential trigger foods today? *(leave empty if none)*",
-                    options=_ALL_FOODS,
+                    options=_ref_foods,
                     default=[],
                     label_visibility="visible",
                 )
@@ -811,9 +816,9 @@ if page == "📋 Log Entry":
 
             state = api_get("/analyze/state/me") or {}
             known_triggers = set(state.get("confirmed_triggers", []) + state.get("suspected_triggers", []))
-            prefilled_foods = [f for f in _ALL_FOODS if f in known_triggers]
+            prefilled_foods = [f for f in _ref_foods if f in known_triggers]
             if not prefilled_foods:
-                prefilled_foods = [f for f in _known_food_triggers if f in _ALL_FOODS]
+                prefilled_foods = [f for f in _known_food_triggers if f in set(_ref_foods)]
 
             st.subheader("Sleep (night before)")
             c1, c2, c3, c4 = st.columns(4)
@@ -829,16 +834,16 @@ if page == "📋 Log Entry":
                 st.subheader("Pain Details")
                 c1, c2, c3, c4 = st.columns(4)
                 pain_level    = c1.slider("Pain level", 1, 10, sos.get("pain_level", 7))
-                pain_location = c2.selectbox("Location", ["", "temporal_left", "temporal_right", "bilateral_temporal", "frontal", "occipital", "behind_eye", "full_head"])
-                pain_quality  = c3.selectbox("Quality", ["", "throbbing", "pressure", "stabbing", "burning", "squeezing"])
+                pain_location = c2.selectbox("Location", ["", "behind_eye", "bilateral_temporal", "frontal", "full_head", "occipital", "temporal_left", "temporal_right"])
+                pain_quality  = c3.selectbox("Quality", ["", "burning", "pressure", "squeezing", "stabbing", "throbbing"])
                 duration_hours = c4.number_input("Duration (hrs)", 0.0, 72.0, step=0.5)
 
                 st.subheader("Prodrome Symptoms")
-                prodrome = st.multiselect("Symptoms before it hit", ["yawning", "neck_stiffness", "light_sensitivity", "food_cravings", "mood_changes", "fatigue", "brain_fog", "nausea", "visual_aura"])
+                prodrome = st.multiselect("Symptoms before it hit", ["brain_fog", "fatigue", "food_cravings", "light_sensitivity", "mood_changes", "nausea", "neck_stiffness", "visual_aura", "yawning"])
                 custom_prodrome_raw = st.text_input("Other prodrome symptoms (comma-separated)", placeholder="e.g. blurry_vision, irritability", key="custom_prodrome")
 
                 st.subheader("Postdrome Symptoms")
-                postdrome = st.multiselect("Symptoms after it passed", ["fatigue", "brain_fog", "neck_stiffness", "mood_changes", "light_sensitivity", "nausea", "euphoria", "difficulty_concentrating", "dizziness", "weakness"])
+                postdrome = st.multiselect("Symptoms after it passed", ["brain_fog", "difficulty_concentrating", "dizziness", "euphoria", "fatigue", "light_sensitivity", "mood_changes", "nausea", "neck_stiffness", "weakness"])
                 custom_postdrome_raw = st.text_input("Other postdrome symptoms (comma-separated)", placeholder="e.g. sensitivity_to_sound, low_energy", key="custom_postdrome")
 
                 st.subheader("Stress")
@@ -875,9 +880,9 @@ if page == "📋 Log Entry":
                         st.caption(f"Pre-filled from quick capture: {sos_med}")
                     medications = st.multiselect("Medications", _MIGRAINE_MEDICATIONS, default=default_meds)
                     custom_medications_raw = st.text_input("Other medications (comma-separated)", placeholder="e.g. amitriptyline", key="custom_medications")
-                    supplements = st.multiselect("Supplements", ["magnesium", "riboflavin_B2", "CoQ10", "melatonin", "butterbur", "feverfew"])
+                    supplements = st.multiselect("Supplements", ["butterbur", "CoQ10", "feverfew", "magnesium", "melatonin", "riboflavin_B2"])
                     custom_supplements_raw = st.text_input("Other supplements (comma-separated)", key="custom_supplements")
-                    traditional_medicine = st.multiselect("Traditional & Herbal Medicine", ["ashwagandha", "brahmi_bacopa", "triphala", "turmeric_curcumin", "ginger_shunthi", "sitopaladi_churna", "trikatu", "tian_ma_gastrodia", "chuan_xiong_ligusticum", "bai_zhi_angelica", "wu_zhu_yu_evodia", "ginkgo_biloba", "peppermint_oil", "acupuncture", "acupressure", "gua_sha", "lavender_aromatherapy"])
+                    traditional_medicine = st.multiselect("Traditional & Herbal Medicine", ["acupressure", "acupuncture", "ashwagandha", "bai_zhi_angelica", "brahmi_bacopa", "chuan_xiong_ligusticum", "ginger_shunthi", "ginkgo_biloba", "gua_sha", "lavender_aromatherapy", "peppermint_oil", "sitopaladi_churna", "tian_ma_gastrodia", "trikatu", "triphala", "turmeric_curcumin", "wu_zhu_yu_evodia"])
                     custom_traditional_raw = st.text_input("Other traditional remedies (comma-separated)", key="custom_traditional")
 
                 with st.expander("Environment & Physical"):
@@ -885,11 +890,11 @@ if page == "📋 Log Entry":
                     neck_tension       = c1.slider("Neck tension", 1, 10, 1)
                     screen_hours       = c1.number_input("Screen hours", 0.0, 24.0, step=0.5)
                     fragrance_exposure = c2.toggle("Fragrance exposure")
-                    chemical_exposure  = c2.multiselect("Chemical exposure", ["cleaning_products", "paint", "perfume", "smoke", "exhaust", "mold"])
+                    chemical_exposure  = c2.multiselect("Chemical exposure", ["cleaning_products", "exhaust", "mold", "paint", "perfume", "smoke"])
                     custom_chemical_raw = st.text_input("Other chemical exposures (comma-separated)", key="custom_chemical")
                     st.divider()
                     c1, c2 = st.columns(2)
-                    exercise_type    = c1.selectbox("Exercise type (day before / morning)", ["", "none", "walking", "running", "cycling", "swimming", "yoga", "strength_training", "HIIT", "stretching", "other"])
+                    exercise_type    = c1.selectbox("Exercise type (day before / morning)", ["", "cycling", "HIIT", "none", "running", "strength_training", "stretching", "swimming", "walking", "yoga", "other"])
                     exercise_minutes = c2.number_input("Exercise (min)", 0, 300, 0, step=5)
 
                 if _show_hormonal_section:
@@ -915,7 +920,7 @@ if page == "📋 Log Entry":
                     bloating = c2.toggle("Bloating?")
 
                 with st.expander("Relief"):
-                    relief_methods = st.multiselect("What helped?", ["dark_room", "sleep", "ice_pack", "heat_pack", "cold_shower", "caffeine", "hydration", "vomiting_relief", "lying_down", "meditation", "breathing_exercises", "acupressure"])
+                    relief_methods = st.multiselect("What helped?", ["acupressure", "breathing_exercises", "caffeine", "cold_shower", "dark_room", "heat_pack", "hydration", "ice_pack", "lying_down", "meditation", "sleep", "vomiting_relief"])
                     relief_effectiveness = st.slider("How effective overall?", 1, 10, 5)
 
                 notes = st.text_area("Notes", placeholder="Anything else worth capturing...")
@@ -1139,7 +1144,7 @@ elif page == "⚙️ Settings":
         migraine_subtype = st.text_input("Subtype (optional)", value=p.get("migraine_subtype") or "")
 
         st.subheader("Known Triggers")
-        known_food_triggers = st.multiselect("Food triggers", _ALL_FOODS, default=p.get("known_food_triggers") or [])
+        known_food_triggers = st.multiselect("Food triggers", _ref_foods, default=p.get("known_food_triggers") or [])
         other_triggers = st.text_input("Other triggers", value=p.get("other_triggers") or "")
 
         st.subheader("Baseline")
@@ -1208,7 +1213,7 @@ elif page == "⚙️ Settings":
 
         st.subheader("Medications")
         preventive_medications = st.multiselect("Preventive medications", _MIGRAINE_MEDICATIONS, default=p.get("preventive_medications") or [])
-        supplements_settings = st.multiselect("Supplements", ["magnesium", "riboflavin_B2", "CoQ10", "melatonin", "butterbur", "feverfew"], default=p.get("supplements") or [])
+        supplements_settings = st.multiselect("Supplements", ["butterbur", "CoQ10", "feverfew", "magnesium", "melatonin", "riboflavin_B2"], default=p.get("supplements") or [])
         acute_medications = st.multiselect("Acute medications on hand", _MIGRAINE_MEDICATIONS, default=p.get("acute_medications") or [])
 
         saved = st.form_submit_button("💾 Save changes", type="primary", use_container_width=True)

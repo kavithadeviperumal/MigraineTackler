@@ -7,7 +7,16 @@ from app.api.deps import get_current_user
 from app.database import get_session_dep
 from app.models.user import User
 from app.models.user_profile import UserProfile
+from app.models.log_entry import LogEntry
 from app.api.schemas import UserProfileCreate, UserProfileUpdate, UserProfileRead
+
+_BASE_FOODS = [
+    "aged_cheese", "alcohol", "artificial_sweeteners", "avocado",
+    "bananas", "beans_legumes", "beer", "caffeine", "chocolate",
+    "citrus", "fermented_foods", "garlic", "gluten", "MSG",
+    "nuts", "onions", "pickled_foods", "pizza", "processed_meat",
+    "red_wine", "smoked_fish", "tyramine_rich_foods", "yeast_extract",
+]
 
 router = APIRouter()
 
@@ -41,6 +50,29 @@ def create_profile(
     session.commit()
     session.refresh(profile)
     return UserProfileRead.model_validate(profile)
+
+
+@router.get("/me/reference-foods")
+def get_reference_foods(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session_dep),
+):
+    """Return the merged food list: base curated list + user's profile triggers + every food the user has ever logged."""
+    profile = session.exec(
+        select(UserProfile).where(UserProfile.user_id == current_user.id)
+    ).first()
+    profile_foods = (profile.known_food_triggers or []) if profile else []
+
+    logs = session.exec(
+        select(LogEntry).where(LogEntry.user_id == current_user.id)
+    ).all()
+    logged_foods: set[str] = set()
+    for log in logs:
+        if log.foods:
+            logged_foods.update(log.foods)
+
+    combined = sorted(set(_BASE_FOODS + profile_foods) | logged_foods, key=str.casefold)
+    return {"foods": combined}
 
 
 @router.patch("/me", response_model=UserProfileRead)

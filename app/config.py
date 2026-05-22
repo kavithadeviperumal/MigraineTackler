@@ -25,9 +25,8 @@ class Settings(BaseSettings):
     airnow_api_key: str = ""
     airnow_zip: str = "78701"
 
-    # Database
-    db_path: str = "data/migraine.db"
-    langgraph_db_path: str = "data/langgraph.db"
+    # Database (PostgreSQL — set DATABASE_URL in environment)
+    database_url: str = ""
 
     # Auth
     jwt_secret_key: str = "dev-secret-change-me-in-production"

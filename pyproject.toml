@@ -11,8 +11,10 @@ dependencies = [
     # LLM + agent framework
     "langchain-google-genai>=2.0.0",
     "langgraph>=0.2.0",
-    "langgraph-checkpoint-sqlite>=2.0.0",
+    "langgraph-checkpoint-postgres>=2.0.0",
     "langsmith>=0.2.0",
+    # Database driver (PostgreSQL)
+    "psycopg[binary]>=3.1.0",
     # UI
     "streamlit>=1.40.0",
     # Database
