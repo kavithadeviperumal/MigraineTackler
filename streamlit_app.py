@@ -219,7 +219,8 @@ def _render_auth_page():
                 password = st.text_input("Password", type="password")
                 submitted = st.form_submit_button("Log in", type="primary", use_container_width=True)
             if submitted:
-                result = api_post("/auth/login", {"username": username, "password": password})
+                with st.spinner("Logging in..."):
+                    result = api_post("/auth/login", {"username": username, "password": password})
                 if result:
                     st.session_state.user_id = result["id"]
                     st.session_state.username = result["username"]
@@ -238,7 +239,8 @@ def _render_auth_page():
                 elif len(new_password) < 6:
                     st.error("Password must be at least 6 characters.")
                 else:
-                    result = api_post("/auth/register", {"username": new_username, "password": new_password})
+                    with st.spinner("Creating your account..."):
+                        result = api_post("/auth/register", {"username": new_username, "password": new_password})
                     if result:
                         st.session_state.user_id = result["id"]
                         st.session_state.username = result["username"]
