@@ -1091,6 +1091,11 @@ elif page == "🔬 Research":
         if result and result.get("messages"):
             for msg in result["messages"]:
                 st.session_state.research_messages.append({"role": "assistant", "content": msg})
+        elif result is None:
+            st.session_state.research_messages.append({
+                "role": "assistant",
+                "content": "Something went wrong reaching the AI service. Check your Google API key and try again.",
+            })
         st.rerun()
 
 # ── Page: History ─────────────────────────────────────────────────────────────

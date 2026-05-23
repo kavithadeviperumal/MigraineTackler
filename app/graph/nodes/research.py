@@ -233,11 +233,17 @@ def run(state: MigraineState) -> dict:
             "messages": [AIMessage(content="No research question provided. Please ask a specific question about migraines or your triggers.")],
         }
 
-    context  = _build_context(state, question)
-    response = _llm.invoke([
-        SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=context),
-    ])
+    context = _build_context(state, question)
+    try:
+        response = _llm.invoke([
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=context),
+        ])
+    except Exception as exc:
+        return {
+            "current_agent": "research",
+            "messages": [AIMessage(content=f"Research lookup failed — the AI service returned an error: {exc}. Please check your Google API key and try again.")],
+        }
 
     text       = response.content
     structured = _parse_structured(text)
