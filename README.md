@@ -56,42 +56,50 @@ MigraineTackler was built around these realities.
 
 ### Two-Layer Design
 
-Safety-critical logic is **deterministic and never touches the LLM**. 
+Safety-critical logic is **deterministic and never touches the LLM**.
 AI handles synthesis and judgment only.
 
-User Input
-↓
-┌─────────────────────────────────┐
-│  Layer 1: Rules Engine          │
-│  - MOH detection                │
-│    (≥10 medication days/month)  │
-│  - Red flag symptom detection   │
-│  - Trigger frequency tracking   │
-│  - Weather/AQI enrichment       │
-└────────────────┬────────────────┘
-↓ (if no safety alert)
-┌─────────────────────────────────┐
-│  Layer 2: LanGraph Agents       │
-│  - Orchestrator routes intent   │
-│  - Loads shared memory context  │
-│  - Delegates to specialist      │
-└─────────────────────────────────┘
+```mermaid
+flowchart TD
+    A([User Input]) --> B
+
+    subgraph L1["⚙️  Layer 1 — Rules Engine  (deterministic)"]
+        B[MOH detection\n≥10 medication days / month]
+        C[Red flag symptom check]
+        D[Trigger frequency tracking]
+        E[Weather & AQI enrichment]
+    end
+
+    B --> F{Safety alert?}
+    C --> F
+    D --> F
+    E --> F
+
+    F -->|Yes| G[🚨 Alert shown directly\nLLM bypassed]
+    F -->|No| H
+
+    subgraph L2["🤖  Layer 2 — LangGraph Agents  (AI)"]
+        H[Orchestrator routes intent] --> I[Loads shared memory context]
+        I --> J[Delegates to specialist agent]
+    end
+```
 
 
 
-### The 5 Agents
+### The 6 Agents
 
 | Agent | Triggers | Role |
 |-------|----------|------|
 | **Intake** | After every log entry | Targeted follow-up questions — distinguishes prodrome from trigger |
 | **Pattern** | After 2+ log entries | Analyzes history + weather data — confirms triggers, detects lag effects and hormonal patterns |
-| **Research** | On research requests | Evidence synthesis across 4 medical frameworks, tiered by confidence (RCT → traditional knowledge) |
-| **Root Cause** | Weekly or on milestone | 3-layer causal hypothesis across Western, functional, TCM, and Ayurvedic frameworks |
+| **Research** | On research requests | Retrieves real abstracts from PubMed + Semantic Scholar; LLM synthesizes from retrieved evidence only |
+| **Root Cause** | Weekly or on milestone | 3-layer causal hypothesis grounded in the user's own data with structured evidence provenance |
 | **Protocol** | After root cause updates | Personalized 5-tier intervention plan from safety-first to advanced interventions |
+| **Preventive Care** | On demand | Reviews what's slipping, what worked, and surfaces non-medication preventive protocols |
 
 ### Shared Memory
 
-All agents read and write a persistent memory store via LanGraph 
+All agents read and write a persistent memory store via LangGraph
 PostgresSaver checkpointing:
 
 - Confirmed / suspected / ruled-out triggers
@@ -110,7 +118,7 @@ Every agent starts with complete context. No conversation resets between session
 |-------|-----------|
 | Frontend | Streamlit |
 | Backend | FastAPI + Uvicorn |
-| Agent Orchestration | LanGraph + LangChain |
+| Agent Orchestration | LangGraph + LangChain |
 | LLM | Google Gemini 2.0 Flash |
 | Database | PostgreSQL + pgvector |
 | ORM | SQLModel |
@@ -131,11 +139,11 @@ symptoms is clinically unacceptable. Hard-coded rules guarantee the same
 output for the same input — every time. The LLM handles judgment; 
 deterministic code handles facts.
 
-**Why LanGraph?**  
-Longitudinal health tracking requires persistent state. LanGraph's 
-PostgresSaver checkpoints every agent's memory to the database — a user 
-who returns after a week picks up with full context, confirmed triggers, 
-and current hypothesis intact. Conditional routing also makes the agent 
+**Why LangGraph?**  
+Longitudinal health tracking requires persistent state. LangGraph's
+PostgresSaver checkpoints every agent's memory to the database — a user
+who returns after a week picks up with full context, confirmed triggers,
+and current hypothesis intact. Conditional routing also makes the agent
 graph explicit, debuggable, and auditable.
 
 **Why multi-framework analysis?**  
@@ -144,20 +152,22 @@ Different medical frameworks identify different patterns in the same data.
 The system generates hypotheses across all four for the user to explore 
 with their practitioners.
 
-**Known limitation:** Multi-framework analysis quality depends on the 
-model's training data. This system generates hypotheses for exploration — 
-not clinical diagnoses. Next build: RAG over PubMed and specialized 
-medical databases to ground synthesis in retrieved evidence.
+**Known limitation:** Multi-framework analysis quality depends on the
+model's training data. The research node retrieves real abstracts from
+PubMed and Semantic Scholar at query time — but TCM and Ayurvedic
+literature is not yet covered by a dedicated retrieval source. This
+system generates hypotheses for exploration, not clinical diagnoses.
 
 ---
 
 ## Roadmap
 
-- [ ] RAG over PubMed + TCM/Ayurvedic databases  
-- [ ] Switch to Claude API for stronger multi-framework reasoning  
-- [ ] Apple Shortcuts voice logging for iPhone (reduce in-migraine friction)  
-- [ ] Proactive risk alerts via email when trigger conditions align  
-- [ ] React Native mobile frontend  
+- [x] RAG over PubMed + Semantic Scholar (live abstract retrieval, no training-weight citations)
+- [ ] RAG over TCM and Ayurvedic literature databases
+- [ ] Switch to Claude API for stronger multi-framework reasoning
+- [ ] Apple Shortcuts voice logging for iPhone (reduce in-migraine friction)
+- [ ] Proactive risk alerts via email when trigger conditions align
+- [ ] React Native mobile frontend
 
 ---
 
@@ -175,30 +185,36 @@ pip install -e .
 
 # Configure environment
 cp .env.example .env
-Edit .env with your keys:
+```
 
+Edit `.env` with your keys:
 
-GOOGLE_API_KEY=          # aistudio.google.com
+```env
+GOOGLE_API_KEY=           # aistudio.google.com
 LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=       # smith.langchain.com
-LANGCHAIN_PROJECT=       # your project name
-OPENWEATHER_API_KEY=     # openweathermap.org
-OPENWEATHER_CITY=        # your city
-OPENWEATHER_COUNTRY_CODE=# e.g. US
-AIRNOW_API_KEY=          # airnowapi.org
-AIRNOW_ZIP=              # your zip code
-DB_PATH=                 # path to migraine.db
-LANGGRAPH_DB_PATH=       # path to langgraph.db
-JWT_SECRET_KEY=          # any strong secret
+LANGCHAIN_API_KEY=        # smith.langchain.com
+LANGCHAIN_PROJECT=        # your project name
+OPENWEATHER_API_KEY=      # openweathermap.org
+OPENWEATHER_CITY=         # your city
+OPENWEATHER_COUNTRY_CODE= # e.g. US
+AIRNOW_API_KEY=           # airnowapi.org (US only)
+AIRNOW_ZIP=               # your zip code
+DATABASE_URL=             # postgresql://user:password@localhost:5432/migrainetackler
+JWT_SECRET_KEY=           # generate: python -c "import secrets; print(secrets.token_hex(32))"
 JWT_EXPIRE_DAYS=30
 LOG_LEVEL=INFO
+```
 
+```bash
 # Run backend
 uvicorn app.api.main:app --reload
 
 # Run frontend (separate terminal)
 streamlit run streamlit_app.py
-License
+```
+
+---
+
+## License
+
 MIT
-
-
