@@ -66,6 +66,7 @@ for _k, _v in {
     "geo_city": "",
     "onboarding_step": 1,
     "onboarding_data": {},
+    "preventive_care_output": None,
 }.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -362,6 +363,16 @@ def _render_onboarding(existing_profile: dict):
         # ── Step 3: Baseline ──────────────────────────────────────────────────
         elif step == 3:
             _onboarding_progress()
+            st.subheader("Where do you live?")
+            st.caption("Used to pull automatic weather data — barometric pressure changes are a major migraine trigger.")
+            home_city_ob = st.text_input(
+                "Home city",
+                value=data.get("home_city", ""),
+                placeholder="e.g. Austin, TX  or  London, UK",
+                label_visibility="collapsed",
+                key="ob_home_city",
+            )
+            st.divider()
             st.subheader("What are your typical sleep times?")
             c1, c2 = st.columns(2)
             with c1:
@@ -432,6 +443,7 @@ def _render_onboarding(existing_profile: dict):
                     "Mostly active / on feet": "active",
                     "Mixed": "mixed",
                 }
+                data["home_city"] = home_city_ob or None
                 data["typical_bedtime"] = bedtime.strftime("%H:%M") if bedtime else None
                 data["typical_wake_time"] = wake_time.strftime("%H:%M") if wake_time else None
                 data["typical_stress_level"] = stress
@@ -628,6 +640,7 @@ if not _profile.get("onboarding_complete"):
             k: _profile.get(k) for k in [
                 "migraine_duration", "migraine_frequency", "migraine_subtype",
                 "known_food_triggers", "other_triggers",
+                "home_city",
                 "typical_bedtime", "typical_wake_time", "typical_stress_level", "job_type",
                 "typical_hydration_oz", "typical_caffeine_level",
                 "hormonal_status", "cycle_length_days", "migraines_cluster_period", "worst_hormonal_phase",
@@ -682,6 +695,7 @@ _hs = _profile.get("hormonal_status")
 _show_cycle_day = _hormonal_shows_cycle(_hs)
 _show_hormonal_section = _hormonal_shows_section(_hs)
 _known_food_triggers = _profile.get("known_food_triggers") or []
+_profile_home_city = _profile.get("home_city") or ""
 _profile_bedtime = _parse_bedtime(_profile, "typical_bedtime", time(22, 30))
 _profile_wake = _parse_bedtime(_profile, "typical_wake_time", time(6, 30))
 _profile_prev_meds = _profile.get("preventive_medications") or []
@@ -719,17 +733,7 @@ if page == "📋 Log Entry":
 
     # ── Quick path: migraine-free day ─────────────────────────────────────────
     if not migraine_occurred:
-        st.caption("✅ Great day — quick check-in")
-
-        # Build trigger food options: profile known triggers + agent confirmed/suspected
-        _free_state = api_get("/analyze/state/me") or {}
-        _agent_triggers = set(
-            _free_state.get("confirmed_triggers", []) + _free_state.get("suspected_triggers", [])
-        )
-        _ref_foods_set = set(_ref_foods)
-        _quick_food_opts = list(dict.fromkeys(
-            _known_food_triggers + [t for t in _agent_triggers if t in _ref_foods_set]
-        ))
+        st.caption("✅ Great day — 30-second check-in")
 
         with st.form("log_form_free", clear_on_submit=False):
             entry_date = st.date_input("Date", value=date.today(), max_value=date.today())
@@ -738,20 +742,14 @@ if page == "📋 Log Entry":
             sleep_quality = c1.slider("Sleep quality last night", 1, 10, 6, key="slq_free")
             stress_level  = c2.slider("Stress level today", 1, 10, _profile.get("typical_stress_level") or 3, key="stress_free")
 
-            if _quick_food_opts:
+            if _known_food_triggers:
                 trigger_foods_today = st.multiselect(
-                    "Trigger foods today? *(leave empty if none)*",
-                    options=_quick_food_opts,
+                    "Any of your trigger foods today? *(leave empty if none)*",
+                    options=_known_food_triggers,
                     default=[],
-                    label_visibility="visible",
                 )
             else:
-                trigger_foods_today = st.multiselect(
-                    "Potential trigger foods today? *(leave empty if none)*",
-                    options=_ref_foods,
-                    default=[],
-                    label_visibility="visible",
-                )
+                trigger_foods_today = []
 
             hydration_choice = st.radio(
                 "Hydration today",
@@ -760,7 +758,7 @@ if page == "📋 Log Entry":
                 horizontal=True,
             )
 
-            notes = st.text_area("Notes *(optional)*", placeholder="Anything worth capturing today...")
+            notes = st.text_area("Anything notable? *(optional)*", placeholder="Stress source, unusual food, fragrance, anything...")
             submitted_free = st.form_submit_button("💾 Save", type="primary", use_container_width=True)
 
         if submitted_free:
@@ -807,170 +805,133 @@ if page == "📋 Log Entry":
 
         else:
             sos = st.session_state.sos_data
-            st.info(f"🔴 Migraine logged at **{sos.get('time', '')}** — pain **{sos.get('pain_level', '?')}/10**. Add details when ready.")
+            st.info(f"🔴 Migraine logged at **{sos.get('time', '')}** — pain **{sos.get('pain_level', '?')}/10**. Add a few details when you feel up to it.")
             if st.button("❌ Clear (false alarm)"):
                 st.session_state.sos_pending = False
                 st.session_state.sos_data = {}
                 st.rerun()
             st.divider()
 
-            _geo_city_mig = _render_location_picker()
+            # ── Auto-derive context from yesterday's log ──────────────────────
+            _recent_logs = api_get("/logs", {"limit": 5}) or []
+            _yesterday_log = next((l for l in _recent_logs if not l.get("migraine_occurred")), None)
 
-            state = api_get("/analyze/state/me") or {}
-            known_triggers = set(state.get("confirmed_triggers", []) + state.get("suspected_triggers", []))
-            prefilled_foods = [f for f in _ref_foods if f in known_triggers]
-            if not prefilled_foods:
-                prefilled_foods = [f for f in _known_food_triggers if f in set(_ref_foods)]
+            _auto_sleep_hours = _yesterday_log.get("sleep_hours") if _yesterday_log else _typical_sleep_hours
+            _auto_sleep_quality = _yesterday_log.get("sleep_quality") if _yesterday_log else None
+            _auto_stress = _yesterday_log.get("stress_level") if _yesterday_log else None
+            _auto_hydration = _yesterday_log.get("hydration_oz") if _yesterday_log else _profile_hydration_oz
+            _auto_caffeine = _yesterday_log.get("caffeine_mg") if _yesterday_log else _profile_caffeine_mg
+            _auto_foods = _yesterday_log.get("foods") or [] if _yesterday_log else []
 
-            st.subheader("Sleep (night before)")
-            c1, c2, c3, c4 = st.columns(4)
-            with c3:
-                bedtime = _time_picker_widget("Bedtime", value=_profile_bedtime, key="bt_mig")
-            with c4:
-                wake_time = _time_picker_widget("Wake time", value=_profile_wake, key="wt_mig")
-            sleep_hours = _calc_sleep_hours(bedtime, wake_time)
-            c1.metric("Hours (auto)", f"{sleep_hours} h" if sleep_hours is not None else "—")
-            sleep_quality = c2.slider("Quality", 1, 10, 5, key="sl_q_mig")
+            # ── Show auto-derived context panel ───────────────────────────────
+            with st.expander("📋 Pre-filled from your previous log — no need to re-enter", expanded=True):
+                _ctx_cols = st.columns(4)
+                _ctx_cols[0].metric("Sleep", f"{_auto_sleep_hours}h" if _auto_sleep_hours else "—")
+                _ctx_cols[1].metric("Sleep quality", f"{_auto_sleep_quality}/10" if _auto_sleep_quality else "—")
+                _ctx_cols[2].metric("Stress", f"{_auto_stress}/10" if _auto_stress else "—")
+                _ctx_cols[3].metric("Hydration", f"{round(_auto_hydration)} oz" if _auto_hydration else "—")
+                if _auto_foods:
+                    st.caption(f"Foods logged: {', '.join(_auto_foods)}")
+                if not _yesterday_log:
+                    st.caption("No recent log found — context will be estimated from your profile baseline.")
 
-            with st.form("recovery_form", clear_on_submit=False):
-                st.subheader("Pain Details")
-                c1, c2, c3, c4 = st.columns(4)
-                pain_level    = c1.slider("Pain level", 1, 10, sos.get("pain_level", 7))
-                pain_location = c2.selectbox("Location", ["", "behind_eye", "bilateral_temporal", "frontal", "full_head", "occipital", "temporal_left", "temporal_right"])
-                pain_quality  = c3.selectbox("Quality", ["", "burning", "pressure", "squeezing", "stabbing", "throbbing"])
-                duration_hours = c4.number_input("Duration (hrs)", 0.0, 72.0, step=0.5)
+            st.markdown("#### Just answer these — we'll handle the rest")
 
-                st.subheader("Prodrome Symptoms")
-                prodrome = st.multiselect("Symptoms before it hit", ["brain_fog", "fatigue", "food_cravings", "light_sensitivity", "mood_changes", "nausea", "neck_stiffness", "visual_aura", "yawning"])
-                custom_prodrome_raw = st.text_input("Other prodrome symptoms (comma-separated)", placeholder="e.g. blurry_vision, irritability", key="custom_prodrome")
+            # ── Determine dynamic question from top trigger ───────────────────
+            _sos_state = api_get("/analyze/state/me") or {}
+            _confirmed = _sos_state.get("confirmed_triggers", [])
+            _suspected = _sos_state.get("suspected_triggers", [])
+            _all_triggers = _confirmed + _suspected
+            _dynamic_label = "Anything unusual in your environment, diet, or routine in the past 24 hours?"
+            if _all_triggers:
+                _top = _all_triggers[0].lower()
+                if any(k in _top for k in ["sleep", "insomnia"]):
+                    _dynamic_label = f"Sleep is one of your top triggers — did the previous night feel worse than usual, beyond what's shown above?"
+                elif any(k in _top for k in ["caffeine", "coffee"]):
+                    _dynamic_label = "Caffeine is a suspected trigger — did you skip or significantly reduce it today?"
+                elif any(k in _top for k in ["stress"]):
+                    _dynamic_label = "Stress is linked to your migraines — what was weighing on you in the past 24 hours?"
+                elif any(k in _top for k in ["weather", "pressure", "barometric"]):
+                    _dynamic_label = "Weather changes are a trigger for you — did you notice the headache building with any weather shift?"
+                elif any(k in _top for k in ["hormonal", "menstrual", "cycle"]):
+                    _dynamic_label = "Hormonal patterns are a factor for you — where are you in your cycle right now (day number if known)?"
+                else:
+                    _dynamic_label = f"One of your triggers is **{_all_triggers[0]}** — any exposure to it in the past 24 hours?"
 
-                st.subheader("Postdrome Symptoms")
-                postdrome = st.multiselect("Symptoms after it passed", ["brain_fog", "difficulty_concentrating", "dizziness", "euphoria", "fatigue", "light_sensitivity", "mood_changes", "nausea", "neck_stiffness", "weakness"])
-                custom_postdrome_raw = st.text_input("Other postdrome symptoms (comma-separated)", placeholder="e.g. sensitivity_to_sound, low_energy", key="custom_postdrome")
+            with st.form("sos_smart_form", clear_on_submit=False):
+                # Q1 — Prodrome
+                st.markdown("**1. Any warning signs before it hit?**")
+                _prior_prodromes = []
+                for _ml in _recent_logs:
+                    if _ml.get("prodrome_symptoms"):
+                        _prior_prodromes += _ml["prodrome_symptoms"]
+                _prodrome_opts = ["brain_fog", "fatigue", "food_cravings", "light_sensitivity",
+                                  "mood_changes", "nausea", "neck_stiffness", "visual_aura", "yawning"]
+                _prodrome_defaults = [p for p in list(dict.fromkeys(_prior_prodromes)) if p in _prodrome_opts][:3]
+                prodrome = st.multiselect("Prodrome symptoms", _prodrome_opts,
+                                          default=_prodrome_defaults, label_visibility="collapsed")
 
-                st.subheader("Stress")
-                c1, c2 = st.columns(2)
-                stress_level  = c1.slider("Level", 1, 10, 3, key="stress_mig")
-                stress_source = c2.text_input("Source", placeholder="job search, deadline...")
+                # Q2 — Pain location + duration
+                st.markdown("**2. Pain: where and how long?**")
+                _q2_c1, _q2_c2, _q2_c3 = st.columns(3)
+                pain_level = _q2_c1.slider("Pain level", 1, 10, sos.get("pain_level", 7))
+                pain_location = _q2_c2.selectbox("Location",
+                    ["", "behind_eye", "bilateral_temporal", "frontal", "full_head", "occipital", "temporal_left", "temporal_right"])
+                duration_hours = _q2_c3.number_input("Duration (hrs)", 0.0, 72.0, step=0.5)
 
-                with st.expander("Diet & Hydration", expanded=True):
-                    _all_known_foods = list(dict.fromkeys(
-                        (_profile.get("known_food_triggers") or []) + prefilled_foods
-                    ))
-                    if _all_known_foods:
-                        st.caption("Did any of your usual trigger foods play a role in the 24h before your migraine?")
-                        foods = st.multiselect("Known trigger foods", _all_known_foods, default=prefilled_foods)
-                    else:
-                        foods = []
-                    new_foods_raw = st.text_input(
-                        "Anything new or unusual you ate?",
-                        placeholder="e.g. aged cheese, skipped lunch, red wine, protein bar...",
-                    )
-                    c1, c2 = st.columns(2)
-                    hydration_low = c1.toggle("Hydration was low the day before")
-                    caffeine_different = c2.radio(
-                        "Caffeine vs. your usual",
-                        ["Much less / skipped", "About the same", "More than usual"],
-                        index=1,
-                    )
-                    alcohol_drinks = st.number_input("Alcohol (drinks, if any)", 0.0, 20.0, 0.0, step=0.5)
+                # Q3 — Relief
+                st.markdown("**3. What helped?**")
+                _q3_c1, _q3_c2 = st.columns([2, 1])
+                relief_methods = _q3_c1.multiselect("Relief methods",
+                    ["acupressure", "breathing_exercises", "caffeine", "cold_shower", "dark_room",
+                     "heat_pack", "hydration", "ice_pack", "lying_down", "meditation", "sleep", "vomiting_relief"],
+                    label_visibility="collapsed")
+                relief_effectiveness = _q3_c2.slider("Effectiveness", 1, 10, 5, label_visibility="collapsed")
 
-                with st.expander("Medications & Supplements"):
-                    sos_med = sos.get("medication")
-                    default_meds = [sos_med] if sos_med and sos_med in _MIGRAINE_MEDICATIONS else []
-                    if default_meds:
-                        st.caption(f"Pre-filled from quick capture: {sos_med}")
-                    medications = st.multiselect("Medications", _MIGRAINE_MEDICATIONS, default=default_meds)
-                    custom_medications_raw = st.text_input("Other medications (comma-separated)", placeholder="e.g. amitriptyline", key="custom_medications")
-                    supplements = st.multiselect("Supplements", ["butterbur", "CoQ10", "feverfew", "magnesium", "melatonin", "riboflavin_B2"])
-                    custom_supplements_raw = st.text_input("Other supplements (comma-separated)", key="custom_supplements")
-                    traditional_medicine = st.multiselect("Traditional & Herbal Medicine", ["acupressure", "acupuncture", "ashwagandha", "bai_zhi_angelica", "brahmi_bacopa", "chuan_xiong_ligusticum", "ginger_shunthi", "ginkgo_biloba", "gua_sha", "lavender_aromatherapy", "peppermint_oil", "sitopaladi_churna", "tian_ma_gastrodia", "trikatu", "triphala", "turmeric_curcumin", "wu_zhu_yu_evodia"])
-                    custom_traditional_raw = st.text_input("Other traditional remedies (comma-separated)", key="custom_traditional")
+                # Medication — pre-fill from SOS
+                sos_med = sos.get("medication")
+                _default_meds = [sos_med] if sos_med and sos_med in _MIGRAINE_MEDICATIONS else []
+                medications = st.multiselect("Medications taken", _MIGRAINE_MEDICATIONS, default=_default_meds)
 
-                with st.expander("Environment & Physical"):
-                    c1, c2 = st.columns(2)
-                    neck_tension       = c1.slider("Neck tension", 1, 10, 1)
-                    screen_hours       = c1.number_input("Screen hours", 0.0, 24.0, step=0.5)
-                    fragrance_exposure = c2.toggle("Fragrance exposure")
-                    chemical_exposure  = c2.multiselect("Chemical exposure", ["cleaning_products", "exhaust", "mold", "paint", "perfume", "smoke"])
-                    custom_chemical_raw = st.text_input("Other chemical exposures (comma-separated)", key="custom_chemical")
-                    st.divider()
-                    c1, c2 = st.columns(2)
-                    exercise_type    = c1.selectbox("Exercise type (day before / morning)", ["", "cycling", "HIIT", "none", "running", "strength_training", "stretching", "swimming", "walking", "yoga", "other"])
-                    exercise_minutes = c2.number_input("Exercise (min)", 0, 300, 0, step=5)
+                # Q4 — Dynamic trigger question
+                st.markdown(f"**4. {_dynamic_label}**")
+                dynamic_answer = st.text_input("Your answer", label_visibility="collapsed",
+                                               placeholder="Type your answer here...")
 
-                if _show_hormonal_section:
-                    with st.expander("Hormonal"):
-                        c1, c2 = st.columns(2)
-                        if _show_cycle_day:
-                            menstrual_cycle_day = c1.number_input("Cycle day", 0, 35, 0)
-                        else:
-                            menstrual_cycle_day = None
-                            c1.caption(f"Status: *{_HORMONAL_STATUSES.get(_hs, _hs)}*")
-                        if _hs == "hormonal_contraception":
-                            hormonal_notes = c2.text_input("Hormonal symptoms today?", placeholder="e.g. spotting, mood changes")
-                        else:
-                            hormonal_notes = c2.text_input("Hormonal notes")
+                # Hormonal — only if relevant
+                if _show_cycle_day:
+                    menstrual_cycle_day = st.number_input("Cycle day *(optional)*", 0, 35, 0)
                 else:
                     menstrual_cycle_day = None
-                    hormonal_notes = None
 
-                with st.expander("Gut"):
-                    c1, c2 = st.columns(2)
-                    bowel_quality = c1.select_slider("Bowel quality (Bristol scale)", options=[0, 1, 2, 3, 4, 5, 6, 7], value=0,
-                        format_func=lambda x: {0: "—", 1: "1 – Hard lumps", 2: "2 – Lumpy", 3: "3 – Cracked sausage", 4: "4 – Smooth (normal)", 5: "5 – Soft blobs", 6: "6 – Mushy", 7: "7 – Liquid"}[x])
-                    bloating = c2.toggle("Bloating?")
+                submitted_smart = st.form_submit_button("💾 Submit", type="primary", use_container_width=True)
 
-                with st.expander("Relief"):
-                    relief_methods = st.multiselect("What helped?", ["acupressure", "breathing_exercises", "caffeine", "cold_shower", "dark_room", "heat_pack", "hydration", "ice_pack", "lying_down", "meditation", "sleep", "vomiting_relief"])
-                    relief_effectiveness = st.slider("How effective overall?", 1, 10, 5)
-
-                notes = st.text_area("Notes", placeholder="Anything else worth capturing...")
-                submitted_recovery = st.form_submit_button("💾 Submit Complete Log", type="primary", use_container_width=True)
-
-            if submitted_recovery:
+            if submitted_smart:
                 st.session_state.sos_pending = False
                 st.session_state.sos_data = {}
+                _notes_parts = []
+                if dynamic_answer.strip():
+                    _notes_parts.append(f"[Trigger check] {_dynamic_label} — {dynamic_answer.strip()}")
                 _submit_log({
                     "entry_date": sos.get("date", str(date.today())),
                     "migraine_occurred": True,
-                    "city": _geo_city_mig,
+                    "city": _profile_home_city or None,
                     "pain_level": pain_level,
                     "pain_location": pain_location or None,
-                    "pain_quality": pain_quality or None,
                     "duration_hours": duration_hours or None,
-                    "prodrome_symptoms": (prodrome + [f.strip() for f in custom_prodrome_raw.split(",") if f.strip()]) or None,
-                    "postdrome_symptoms": (postdrome + [f.strip() for f in custom_postdrome_raw.split(",") if f.strip()]) or None,
-                    "sleep_hours": sleep_hours,
-                    "sleep_quality": sleep_quality,
-                    "bedtime": bedtime.strftime("%H:%M"),
-                    "wake_time": wake_time.strftime("%H:%M"),
-                    "stress_level": stress_level,
-                    "stress_source": stress_source or None,
-                    "foods": (foods + [f.strip() for f in new_foods_raw.split(",") if f.strip()]) or None,
-                    "hydration_oz": round(_profile_hydration_oz * 0.5, 1) if hydration_low else _profile_hydration_oz,
-                    "caffeine_mg": {
-                        "Much less / skipped": max(0.0, _profile_caffeine_mg * 0.1),
-                        "About the same": _profile_caffeine_mg,
-                        "More than usual": _profile_caffeine_mg * 1.75,
-                    }.get(caffeine_different, _profile_caffeine_mg),
-                    "alcohol_drinks": alcohol_drinks or None,
-                    "medications": (medications + [f.strip() for f in custom_medications_raw.split(",") if f.strip()]) or None,
-                    "supplements": (supplements + [f.strip() for f in custom_supplements_raw.split(",") if f.strip()]) or None,
-                    "traditional_medicine": (traditional_medicine + [f.strip() for f in custom_traditional_raw.split(",") if f.strip()]) or None,
-                    "neck_tension": neck_tension if neck_tension > 1 else None,
-                    "screen_hours": screen_hours or None,
-                    "fragrance_exposure": fragrance_exposure,
-                    "chemical_exposure": (chemical_exposure + [f.strip() for f in custom_chemical_raw.split(",") if f.strip()]) or None,
-                    "exercise_type": exercise_type or None,
-                    "exercise_minutes": exercise_minutes or None,
-                    "menstrual_cycle_day": menstrual_cycle_day or None,
-                    "hormonal_notes": hormonal_notes or None,
-                    "bowel_quality": bowel_quality or None,
-                    "bloating": bloating,
+                    "prodrome_symptoms": prodrome or None,
+                    # auto-derived from yesterday's log
+                    "sleep_hours": _auto_sleep_hours,
+                    "sleep_quality": _auto_sleep_quality,
+                    "stress_level": _auto_stress,
+                    "foods": _auto_foods or None,
+                    "hydration_oz": _auto_hydration,
+                    "caffeine_mg": _auto_caffeine,
+                    "medications": medications or None,
                     "relief_methods": relief_methods or None,
                     "relief_effectiveness": relief_effectiveness if relief_methods else None,
-                    "notes": notes or None,
+                    "menstrual_cycle_day": menstrual_cycle_day or None,
+                    "notes": "\n".join(_notes_parts) or None,
                 })
                 st.rerun()
 
@@ -1037,10 +998,20 @@ elif page == "📊 Dashboard":
             st.subheader("Root Cause Hypothesis")
             hypothesis = state.get("current_root_cause_hypothesis", "")
             subtype = state.get("migraine_subtype", "")
+            evidence = state.get("root_cause_evidence", [])
             if hypothesis:
                 if subtype:
                     st.caption(f"Subtype: `{subtype}`")
                 st.write(hypothesis)
+                if evidence:
+                    st.markdown("**Evidence**")
+                    for ev in evidence:
+                        claim = ev.get("claim", "")
+                        source = ev.get("source", "")
+                        stype = ev.get("source_type", "")
+                        _badge = {"log_history": "🗓", "onboarding": "📋", "weather": "🌦",
+                                  "agent_memory": "🧠", "stats": "📊"}.get(stype, "•")
+                        st.markdown(f"{_badge} {claim} `[{source}]`")
             else:
                 st.caption("No hypothesis yet.")
 
@@ -1057,6 +1028,20 @@ elif page == "📊 Dashboard":
                     st.caption(f"Assess after {item['assessment_weeks']} weeks")
         else:
             st.caption("No protocol yet.")
+
+        st.divider()
+        st.subheader("💊 Preventive Care")
+        st.caption("On-demand: what's slipping, what worked, and non-medication protocols grounded in your data.")
+        if st.button("Get Preventive Care Recommendations", use_container_width=True):
+            with _progress("🌿 Generating your personalised plan...", 0.6):
+                _pc_result = call_analyze("preventive_care")
+            if _pc_result and _pc_result.get("messages"):
+                st.session_state["preventive_care_output"] = _pc_result["messages"][-1]
+                st.rerun()
+
+        if st.session_state.get("preventive_care_output"):
+            with st.expander("Your Preventive Care Plan", expanded=True):
+                st.markdown(st.session_state["preventive_care_output"])
 
         st.divider()
         c1, c2, c3 = st.columns(3)
@@ -1150,6 +1135,10 @@ elif page == "⚙️ Settings":
             index=_freq_opts.index(p.get("migraine_frequency", "1-3/month")) if p.get("migraine_frequency") in _freq_opts else 1)
         migraine_subtype = st.text_input("Subtype (optional)", value=p.get("migraine_subtype") or "")
 
+        st.subheader("Location")
+        home_city_s = st.text_input("Home city", value=p.get("home_city") or "",
+                                    placeholder="e.g. Austin, TX  or  London, UK")
+
         st.subheader("Known Triggers")
         known_food_triggers = st.multiselect("Food triggers", _ref_foods, default=p.get("known_food_triggers") or [])
         other_triggers = st.text_input("Other triggers", value=p.get("other_triggers") or "")
@@ -1230,6 +1219,7 @@ elif page == "⚙️ Settings":
             "migraine_duration": migraine_duration,
             "migraine_frequency": migraine_frequency,
             "migraine_subtype": migraine_subtype or None,
+            "home_city": home_city_s or None,
             "known_food_triggers": known_food_triggers or None,
             "other_triggers": other_triggers or None,
             "typical_bedtime": typical_bedtime.strftime("%H:%M") if typical_bedtime else None,

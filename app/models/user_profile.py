@@ -23,6 +23,7 @@ class UserProfile(SQLModel, table=True):
     other_triggers: Optional[str] = None
 
     # Step 3 — Baseline
+    home_city: Optional[str] = None            # e.g. "Austin, TX" — used for weather lookup
     typical_bedtime: Optional[str] = None      # HH:MM
     typical_wake_time: Optional[str] = None    # HH:MM
     typical_stress_level: Optional[int] = None

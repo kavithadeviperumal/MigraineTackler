@@ -72,6 +72,7 @@ class MigraineState(dict):
     medical_frameworks_applied: Annotated[list[str], operator.add]
 
     current_root_cause_hypothesis: str
+    root_cause_evidence: list[dict]            # [{claim, source, source_type}, ...]
     migraine_subtype: str
     protocol_version: int
     current_protocol: dict                       # serialised Protocol model
@@ -99,6 +100,7 @@ def default_state() -> dict:
         "research_findings": [],
         "medical_frameworks_applied": [],
         "current_root_cause_hypothesis": "",
+        "root_cause_evidence": [],
         "migraine_subtype": "",
         "protocol_version": 0,
         "current_protocol": {},

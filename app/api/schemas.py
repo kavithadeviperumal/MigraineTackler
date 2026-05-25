@@ -40,6 +40,7 @@ class UserProfileCreate(BaseModel):
     migraine_subtype: Optional[str] = None
     known_food_triggers: Optional[List[str]] = None
     other_triggers: Optional[str] = None
+    home_city: Optional[str] = None
     typical_bedtime: Optional[str] = None
     typical_wake_time: Optional[str] = None
     typical_stress_level: Optional[int] = None
@@ -62,6 +63,7 @@ class UserProfileUpdate(BaseModel):
     migraine_subtype: Optional[str] = None
     known_food_triggers: Optional[List[str]] = None
     other_triggers: Optional[str] = None
+    home_city: Optional[str] = None
     typical_bedtime: Optional[str] = None
     typical_wake_time: Optional[str] = None
     typical_stress_level: Optional[int] = None
@@ -88,6 +90,7 @@ class UserProfileRead(BaseModel):
     migraine_subtype: Optional[str] = None
     known_food_triggers: Optional[List[str]] = None
     other_triggers: Optional[str] = None
+    home_city: Optional[str] = None
     typical_bedtime: Optional[str] = None
     typical_wake_time: Optional[str] = None
     typical_stress_level: Optional[int] = None

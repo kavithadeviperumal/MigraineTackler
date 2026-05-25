@@ -21,6 +21,12 @@ likely underlying driver of their migraine condition.
 You are a knowledgeable clinical analyst. You do not diagnose. You reason from patterns in \
 self-reported data to the most probable physiological or behavioral mechanism.
 
+## CRITICAL GROUNDING RULE
+Every claim you make must be traceable to specific data passed to you in this context. \
+Do NOT introduce research statistics, general facts, or claims that are not directly supported \
+by the user's own trigger lists, stats, pattern summary, or log findings provided below. \
+If the data is insufficient, say so explicitly rather than filling gaps with assumptions.
+
 ## Migraine Subtypes to Consider
 - hormonal_migraine — cycle-linked, estrogen-drop driven
 - sleep_disorder_migraine — sleep deprivation or inconsistency is primary driver
@@ -51,6 +57,13 @@ If data is insufficient for a confident hypothesis, say so and describe what's s
   "migraine_subtype": "one of the subtypes above",
   "confidence": "low | medium | high",
   "reasoning": "2–3 sentences explaining what data supports this hypothesis",
+  "evidence": [
+    {
+      "claim": "specific claim this evidence supports",
+      "source": "exact reference in the data (e.g. '6 of 8 migraine days', 'pattern summary', '30-day stats')",
+      "source_type": "log_history | onboarding | weather | agent_memory | stats"
+    }
+  ],
   "what_to_watch": ["next data point or pattern to confirm or rule out this hypothesis"]
 }
 ```
@@ -117,5 +130,7 @@ def run(state: MigraineState) -> dict:
         updates["current_root_cause_hypothesis"] = structured["hypothesis"]
     if structured.get("migraine_subtype"):
         updates["migraine_subtype"] = structured["migraine_subtype"]
+    if isinstance(structured.get("evidence"), list):
+        updates["root_cause_evidence"] = structured["evidence"]
 
     return updates
