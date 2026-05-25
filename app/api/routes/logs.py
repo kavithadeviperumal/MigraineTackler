@@ -1,12 +1,13 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlmodel import Session
 
 from app.api.deps import get_current_user
 from app.database import get_session_dep
 from app.models.user import User
 from app.services import log_service
+from app.services import email as email_svc
 from app.rules.rules_engine import rolling_load
 from app.api.schemas import LogEntryCreate, LogEntryRead, LogCreateResponse, ToxicLoadResponse
 
@@ -15,13 +16,20 @@ router = APIRouter()
 
 @router.post("/", response_model=LogCreateResponse, status_code=201)
 def create_log(
-    payload: LogEntryCreate,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session_dep),
+    payload:          LogEntryCreate,
+    background_tasks: BackgroundTasks,
+    current_user:     User    = Depends(get_current_user),
+    session:          Session = Depends(get_session_dep),
 ):
     data = payload.model_dump()
     data["user_id"] = current_user.id
     result = log_service.create(session, data)
+
+    if result.red_flag:
+        background_tasks.add_task(email_svc.send_red_flag_alert, result.red_flag_symptoms)
+    if result.moh_alert:
+        background_tasks.add_task(email_svc.send_moh_alert, result.triptan_days, result.nsaid_days)
+
     return LogCreateResponse(
         log=LogEntryRead.model_validate(result.entry),
         red_flag=result.red_flag,

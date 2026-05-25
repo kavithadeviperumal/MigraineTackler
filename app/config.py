@@ -32,6 +32,16 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "dev-secret-change-me-in-production"
     jwt_expire_days: int = 30
 
+    # Apple Shortcuts
+    shortcuts_api_key: str = ""
+
+    # Gmail SMTP (use an App Password, not your main Gmail password)
+    smtp_host:    str = "smtp.gmail.com"
+    smtp_port:    int = 587
+    smtp_user:    str = ""   # your Gmail address
+    smtp_password: str = ""  # Gmail App Password
+    alert_email:  str = ""   # address to receive alerts (can be same as smtp_user)
+
     # App
     log_level: str = "INFO"
 

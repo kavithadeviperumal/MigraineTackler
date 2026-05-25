@@ -6,7 +6,7 @@ from app.database import create_db_and_tables, get_session_dep
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.log_entry import LogEntry
-from app.api.routes import logs, analyze, auth, profile
+from app.api.routes import logs, analyze, auth, profile, shortcut
 
 
 @asynccontextmanager
@@ -20,7 +20,8 @@ app = FastAPI(title="MigraineTackler API", version="0.1.0", lifespan=lifespan)
 app.include_router(auth.router,    prefix="/auth",    tags=["auth"])
 app.include_router(profile.router, prefix="/profile", tags=["profile"])
 app.include_router(logs.router,    prefix="/logs",    tags=["logs"])
-app.include_router(analyze.router, prefix="/analyze", tags=["analyze"])
+app.include_router(analyze.router,   prefix="/analyze",   tags=["analyze"])
+app.include_router(shortcut.router,  prefix="/shortcut",  tags=["shortcut"])
 
 
 @app.post("/reset", tags=["dev"])
