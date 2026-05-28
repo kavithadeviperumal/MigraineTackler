@@ -34,6 +34,9 @@ You surface patterns from the data.
    - Weather: barometric pressure changes
    - Physical: neck tension, exercise
    - Chemical/fragrance exposure
+   - Novel exposures: items in the novel_exposures field that are NOT in the standard trigger
+     list. Treat each as an unknown variable. If a novel item appears on ≥2 migraine days,
+     flag it as an unknown_trigger_candidate. Be specific about the item name.
 
 2. PROTECTIVE FACTORS — what appears on migraine-free days but not migraine days
 
@@ -57,6 +60,7 @@ If there is insufficient data (fewer than 4 entries), say so clearly.
 {
   "confirmed_triggers": ["..."],
   "suspected_triggers": ["..."],
+  "unknown_trigger_candidates": ["..."],
   "key_insight": "one sentence — the single most important finding",
   "trend": "improving | worsening | stable"
 }
@@ -66,6 +70,8 @@ Rules:
 - Only list triggers backed by at least 2 occurrences in the data
 - Be specific ("sleep < 6 hours" not just "poor sleep")
 - Return empty lists if data is insufficient — do not guess
+- unknown_trigger_candidates: only items from novel_exposures fields that appear on ≥2 migraine
+  days — never guess or include standard trigger list items here
 """
 
 
@@ -115,6 +121,7 @@ def _format_entries(entries: list) -> str:
         )
         lines.append(f"  Medications: {lst(e.medications)}")
         lines.append(f"  Notes: {e.notes or '—'}")
+        lines.append(f"  Novel exposures: {lst(e.novel_exposures) if e.novel_exposures else '—'}")
         lines.append("")
 
     return "\n".join(lines)
@@ -156,5 +163,7 @@ def run(state: MigraineState) -> dict:
         updates["confirmed_triggers"] = structured["confirmed_triggers"]
     if structured.get("suspected_triggers"):
         updates["suspected_triggers"] = structured["suspected_triggers"]
+    if structured.get("unknown_trigger_candidates"):
+        updates["unknown_trigger_candidates"] = structured["unknown_trigger_candidates"]
 
     return updates

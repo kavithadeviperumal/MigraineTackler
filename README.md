@@ -10,6 +10,8 @@ triggers, identifies cumulative threshold patterns across time, synthesizes
 research across medical frameworks, and generates root cause hypotheses 
 tailored to your history.
 
+> ⭐ If this project is useful or interesting, a star helps others find it — and keeps me building.
+
 ---
 
 ## The Problem with Existing Migraine Apps

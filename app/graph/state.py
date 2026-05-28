@@ -70,6 +70,7 @@ class MigraineState(dict):
     ruled_out_triggers: Annotated[list[str], operator.add]
     research_findings: Annotated[list[str], operator.add]   # "[date] topic: summary"
     medical_frameworks_applied: Annotated[list[str], operator.add]
+    unknown_trigger_candidates: Annotated[list[str], operator.add]  # novel items correlating with migraine days
 
     current_root_cause_hypothesis: str
     root_cause_evidence: list[dict]            # [{claim, source, source_type}, ...]
@@ -99,6 +100,7 @@ def default_state() -> dict:
         "ruled_out_triggers": [],
         "research_findings": [],
         "medical_frameworks_applied": [],
+        "unknown_trigger_candidates": [],
         "current_root_cause_hypothesis": "",
         "root_cause_evidence": [],
         "migraine_subtype": "",

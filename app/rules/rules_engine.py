@@ -134,6 +134,8 @@ def top_triggers(
             counter["meal_skipping"] += 1
         if e.fasting_hours is not None and e.fasting_hours >= 5:
             counter["fasting"] += 1
+        if e.novel_exposures:
+            counter.update(e.novel_exposures)
 
     return [label for label, _ in counter.most_common(n)]
 
@@ -200,6 +202,7 @@ TRIGGER_WINDOWS: dict[str, int] = {
     "trigger_foods": 1,
     "meal_skipping": 1,    # hypoglycemia is acute; resolves with next meal
     "fasting": 1,
+    "novel_exposure": 2,   # unknown substance — 2-day window covers delayed reactions
 }
 
 
@@ -285,6 +288,10 @@ def daily_load_score(entry: LogEntry) -> tuple[float, dict[str, float]]:
         ]
         if trigger_foods:
             add("trigger_foods", min(round(len(trigger_foods) * 0.3, 2), 1.5))
+
+    if entry.novel_exposures:
+        # Each unknown substance adds uncertainty load; capped to avoid over-weighting
+        add("novel_exposure", min(round(len(entry.novel_exposures) * 0.5, 2), 1.5))
 
     total = round(sum(breakdown.values()), 2)
     return total, breakdown

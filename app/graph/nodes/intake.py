@@ -34,13 +34,21 @@ You do not diagnose. You do not give advice. You draw out better data.
    - "When you say X — was that before or after the headache started?"
    - "What kind of stress — sustained mental load, conflict, or deadline crunch?"
 
-3. KNOWN TRIGGERS NOT LOGGED — cross-reference confirmed triggers in memory:
+3. NOVEL / UNUSUAL EXPOSURES — scan foods, supplements, traditional_medicine, chemical_exposure,
+   and notes for anything that does not appear in the standard migraine trigger list AND looks
+   one-off or outside normal routine (new supplement, unfamiliar ingredient, new cleaning product,
+   herbal remedy, protein powder, essential oil, etc.). If you spot one, ask:
+   "I noticed you mentioned [X] — is that a regular part of your day, or something new you tried?"
+   Their answer should be captured as a novel exposure so the system can watch for correlation.
+   Novel exposures already logged are shown in the NOVEL EXPOSURES line below.
+
+4. KNOWN TRIGGERS NOT LOGGED — cross-reference confirmed triggers in memory:
    - "You haven't mentioned [known trigger] today — any exposure?"
 
-4. MEDICATION DETAIL — if medication logged but effectiveness/timing missing:
+5. MEDICATION DETAIL — if medication logged but effectiveness/timing missing:
    - "How long after taking [medication] did pain ease?"
 
-5. ANOMALOUS PATTERNS — migraine with no triggers, or triggers present but no migraine:
+6. ANOMALOUS PATTERNS — migraine with no triggers, or triggers present but no migraine:
    - Surface it specifically and ask what felt different.
 
 ## Rules
@@ -113,18 +121,21 @@ def _build_log_context(entry: LogEntry, stats: dict, state: MigraineState) -> st
         f", {_opt(entry.temperature_f, '°F')}, AQI {_opt(entry.aqi)}",
         "",
         f"NOTES:       {entry.notes or 'none'}",
+        f"NOVEL EXPOSURES: {_list_or(entry.novel_exposures, 'none flagged')}",
     ]
 
     confirmed = state.get("confirmed_triggers", [])
     suspected = state.get("suspected_triggers", [])
     hypothesis = state.get("current_root_cause_hypothesis", "")
+    unknown_candidates = state.get("unknown_trigger_candidates", [])
 
     lines += [
         "",
         "=== LONG-TERM MEMORY ===",
-        f"Confirmed triggers:  {_list_or(confirmed, 'none yet')}",
-        f"Suspected triggers:  {_list_or(suspected, 'none yet')}",
-        f"Current hypothesis:  {hypothesis or 'not yet established'}",
+        f"Confirmed triggers:       {_list_or(confirmed, 'none yet')}",
+        f"Suspected triggers:       {_list_or(suspected, 'none yet')}",
+        f"Unknown candidates:       {_list_or(unknown_candidates, 'none yet')}",
+        f"Current hypothesis:       {hypothesis or 'not yet established'}",
         "",
         "=== 30-DAY STATS ===",
         f"Migraine-free streak:  {stats.get('migraine_free_streak_days', 0)} days",

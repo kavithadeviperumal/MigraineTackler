@@ -82,3 +82,9 @@ class LogEntry(SQLModel, table=True):
     # ── Free text + intake notes ─────────────────────────────────────────────
     notes: Optional[str] = None
     intake_followup_qa: Optional[List[dict]] = Field(default=None, sa_column=Column(JSON))
+
+    # ── Novel / unusual exposures ─────────────────────────────────────────────
+    # Anything consumed, applied, or encountered that is outside the user's normal
+    # routine — not covered by the standard trigger list. Captured via Intake Agent
+    # probing or user self-report. Used for unknown trigger correlation.
+    novel_exposures: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
