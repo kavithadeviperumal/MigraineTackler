@@ -17,18 +17,18 @@ _llm = ChatGoogleGenerativeAI(
 )
 
 SYSTEM_PROMPT = """\
-You are the Preventive Care Agent for MigraineTackler. You receive a user's personal migraine \
+You are the Lifestyle Audit Agent for MigraineTackler. You receive a user's personal migraine \
 data — their confirmed triggers, root cause hypothesis, recent lifestyle log trends, relief methods \
 that worked, their existing protocol, and any research findings already recorded.
 
-Your job is to surface a personalised, actionable preventive care summary.
+Your job is to audit how the user is actually doing against their own data and their current protocol.
 
 ## CRITICAL GROUNDING RULES
 - ONLY reference information that appears in the data passed to you in this context.
 - NEVER introduce research statistics, supplement dosing claims, or general migraine facts \
   that are not grounded in the user's own trigger patterns, logged relief methods, or \
   research_findings already in their records.
-- Every recommendation must explicitly state WHICH data point it comes from.
+- Every finding must explicitly state WHICH data point it comes from.
 - If a section has no supporting data, say "No data yet — keep logging."
 - Do not hallucinate. If you are uncertain, say so.
 
@@ -44,13 +44,16 @@ Relief methods or habits that appear in logs with relief_effectiveness ≥ 7. \
 List what worked, when, and how effective. Only from actual logged data. \
 Tag each item with its source (e.g., [logged 3 times, avg effectiveness 8.3/10]).
 
-### 3. PERSONALISED PROTOCOL
-2–4 non-medication interventions tied directly to this user's confirmed triggers or migraine \
-subtype. If supplements are mentioned (magnesium, feverfew, riboflavin, etc.), only recommend \
-them if they are already in the user's profile supplements list OR if research_findings in their \
-records mention them. Include specific detail (what, when, how much if in their records). \
-Tag each recommendation with [confirmed trigger], [subtype evidence], [prior protocol], or \
-[from your logs].
+### 3. PROTOCOL CALIBRATION CHECK
+Review each item listed under CURRENT PROTOCOL against the lifestyle trend data and migraine \
+outcomes above. For each active item, classify it as one of:
+- ✓ Working — log data shows improvement in the metric this item targets
+- ✗ Not Working — the targeted metric is flat or worsening despite this item being in place
+- ? No Data Yet — not enough logs to evaluate (metric not tracked or item added too recently)
+
+Only assess items where a relevant metric exists in the data above. \
+Do not introduce new recommendations — that is handled separately by the Protocol Agent. \
+If no protocol is established, output: "No protocol established yet — nothing to evaluate."
 
 ### 4. RESEARCH RELEVANT TO YOU
 Summarise 1–2 findings from research_findings that directly apply to this user's confirmed \
@@ -139,11 +142,42 @@ def _build_context(state: MigraineState, entries: list) -> str:
     return "\n".join(lines)
 
 
+def _detect_drift(entries: list) -> bool:
+    free_entries = [e for e in entries if not e.migraine_occurred]
+    cutoff = date.today() - timedelta(days=15)
+    recent = [e for e in free_entries if e.entry_date >= cutoff]
+    earlier = [e for e in free_entries if e.entry_date < cutoff]
+
+    def _avg(vals):
+        clean = [v for v in vals if v is not None]
+        return round(mean(clean), 1) if clean else None
+
+    signals = 0
+
+    sleep_r = _avg([e.sleep_quality for e in recent])
+    sleep_e = _avg([e.sleep_quality for e in earlier])
+    if sleep_r is not None and sleep_e is not None and sleep_e - sleep_r >= 1.5:
+        signals += 1
+
+    stress_r = _avg([e.stress_level for e in recent])
+    stress_e = _avg([e.stress_level for e in earlier])
+    if stress_r is not None and stress_e is not None and stress_r - stress_e >= 2.0:
+        signals += 1
+
+    hydration_r = _avg([e.hydration_oz for e in recent])
+    hydration_e = _avg([e.hydration_oz for e in earlier])
+    if hydration_r is not None and hydration_e is not None and hydration_e - hydration_r >= 20:
+        signals += 1
+
+    return signals >= 2
+
+
 def run(state: MigraineState) -> dict:
     since = date.today() - timedelta(days=30)
     with Session(engine) as session:
         entries = list_recent(session, limit=60, since=since)
 
+    drift = _detect_drift(entries)
     context = _build_context(state, entries)
 
     response = _llm.invoke([
@@ -152,6 +186,7 @@ def run(state: MigraineState) -> dict:
     ])
 
     return {
-        "current_agent": "preventive_care",
+        "current_agent": "lifestyle_audit",
         "messages": [response],
+        "protocol_refresh_recommended": drift,
     }

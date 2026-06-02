@@ -2,7 +2,7 @@ import psycopg
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres import PostgresSaver
 from app.graph.state import MigraineState
-from app.graph.nodes import intake, pattern, research, root_cause, protocol, preventive_care
+from app.graph.nodes import intake, pattern, research, root_cause, protocol, lifestyle_audit
 from app.config import settings
 
 
@@ -20,7 +20,7 @@ def route_intent(state: MigraineState) -> str:
         "research_request":   "research",
         "root_cause_review":  "root_cause",
         "protocol_review":    "protocol",
-        "preventive_care":    "preventive_care",
+        "lifestyle_audit":    "lifestyle_audit",
     }
     return routing.get(intent, END)
 
@@ -33,12 +33,24 @@ def should_run_pattern(state: MigraineState) -> str:
     return END
 
 
+def should_run_research(state: MigraineState) -> str:
+    confirmed = set(state.get("confirmed_triggers", []))
+    seen = set(state.get("research_triggers_seen", []))
+    if confirmed - seen:
+        return "research"
+    return END
+
+
+def should_run_protocol(state: MigraineState) -> str:
+    return "protocol" if state.get("protocol_refresh_recommended") else END
+
+
 def should_run_root_cause(state: MigraineState) -> str:
-    has_triggers = bool(
-        state.get("confirmed_triggers") or state.get("suspected_triggers")
-    )
-    has_hypothesis = bool(state.get("current_root_cause_hypothesis", "").strip())
-    if has_triggers and not has_hypothesis:
+    confirmed = set(state.get("confirmed_triggers", []))
+    suspected = set(state.get("suspected_triggers", []))
+    current = confirmed | suspected
+    seen = set(state.get("root_cause_triggers_seen", []))
+    if current and current != seen:
         return "root_cause"
     return END
 
@@ -53,7 +65,7 @@ def build_graph() -> StateGraph:
     graph.add_node("research",         research.run)
     graph.add_node("root_cause",       root_cause.run)
     graph.add_node("protocol",         protocol.run)
-    graph.add_node("preventive_care",  preventive_care.run)
+    graph.add_node("lifestyle_audit", lifestyle_audit.run)
 
     graph.set_conditional_entry_point(
         route_intent,
@@ -63,7 +75,7 @@ def build_graph() -> StateGraph:
             "research":         "research",
             "root_cause":       "root_cause",
             "protocol":         "protocol",
-            "preventive_care":  "preventive_care",
+            "lifestyle_audit":  "lifestyle_audit",
             END:                END,
         },
     )
@@ -80,10 +92,18 @@ def build_graph() -> StateGraph:
         {"root_cause": "root_cause", END: END},
     )
 
-    graph.add_edge("research",        END)
-    graph.add_edge("root_cause",      END)
+    graph.add_edge("research",         END)
+    graph.add_conditional_edges(
+        "root_cause",
+        should_run_research,
+        {"research": "research", END: END},
+    )
     graph.add_edge("protocol",        END)
-    graph.add_edge("preventive_care", END)
+    graph.add_conditional_edges(
+        "lifestyle_audit",
+        should_run_protocol,
+        {"protocol": "protocol", END: END},
+    )
 
     return graph
 

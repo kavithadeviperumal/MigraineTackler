@@ -66,7 +66,7 @@ for _k, _v in {
     "geo_city": "",
     "onboarding_step": 1,
     "onboarding_data": {},
-    "preventive_care_output": None,
+    "lifestyle_audit_output": None,
 }.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
@@ -1030,18 +1030,20 @@ elif page == "📊 Dashboard":
             st.caption("No protocol yet.")
 
         st.divider()
-        st.subheader("💊 Preventive Care")
+        st.subheader("📊 Lifestyle Audit")
         st.caption("On-demand: what's slipping, what worked, and non-medication protocols grounded in your data.")
-        if st.button("Get Preventive Care Recommendations", use_container_width=True):
+        if st.button("Run Lifestyle Audit", use_container_width=True):
             with _progress("🌿 Generating your personalised plan...", 0.6):
-                _pc_result = call_analyze("preventive_care")
+                _pc_result = call_analyze("lifestyle_audit")
             if _pc_result and _pc_result.get("messages"):
-                st.session_state["preventive_care_output"] = _pc_result["messages"][-1]
+                chained = _pc_result.get("protocol_refresh_recommended", False)
+                audit_msg = _pc_result["messages"][-2] if chained else _pc_result["messages"][-1]
+                st.session_state["lifestyle_audit_output"] = audit_msg
                 st.rerun()
 
-        if st.session_state.get("preventive_care_output"):
-            with st.expander("Your Preventive Care Plan", expanded=True):
-                st.markdown(st.session_state["preventive_care_output"])
+        if st.session_state.get("lifestyle_audit_output"):
+            with st.expander("Your Lifestyle Audit", expanded=True):
+                st.markdown(st.session_state["lifestyle_audit_output"])
 
         st.divider()
         c1, c2, c3 = st.columns(3)

@@ -246,7 +246,7 @@ def _format_papers_block(papers: list[dict]) -> str:
 
 
 def _build_context(papers: list[dict], question: str, state: MigraineState) -> str:
-    lst = lambda v: ", ".join(v) if v else "none identified"
+    lst = lambda v: ", ".join(dict.fromkeys(v)) if v else "none identified"
     user_ctx = "\n".join([
         "=== USER CONTEXT (for relevance) ===",
         f"Migraine subtype:    {state.get('migraine_subtype', 'unknown')}",
@@ -258,11 +258,22 @@ def _build_context(papers: list[dict], question: str, state: MigraineState) -> s
     return "\n\n".join([f"RESEARCH QUESTION: {question}", user_ctx, papers_block])
 
 
-def _extract_question(state: MigraineState) -> str:
+def _extract_question(state: MigraineState) -> tuple[str, bool]:
+    """Returns (question, is_auto_triggered)."""
     for msg in reversed(state.get("messages", [])):
         if isinstance(msg, HumanMessage):
-            return msg.content
-    return ""
+            return msg.content, False
+    confirmed = set(state.get("confirmed_triggers", []))
+    seen = set(state.get("research_triggers_seen", []))
+    new_triggers = confirmed - seen
+    if new_triggers:
+        trigger_list = ", ".join(sorted(new_triggers))
+        return (
+            f"What is the evidence for {trigger_list} as migraine triggers? "
+            "Include physiological mechanisms, evidence quality, and practical logging suggestions.",
+            True,
+        )
+    return "", False
 
 
 def _parse_structured(text: str) -> dict:
@@ -291,7 +302,7 @@ def _format_references_block(papers: list[dict], cited_indices: list[int]) -> st
 # ── Node entry point ──────────────────────────────────────────────────────────
 
 def run(state: MigraineState) -> dict:
-    question = _extract_question(state)
+    question, is_auto = _extract_question(state)
     if not question:
         return {
             "current_agent": "research",
@@ -340,5 +351,8 @@ def run(state: MigraineState) -> dict:
 
     if structured.get("medical_framework"):
         updates["medical_frameworks_applied"] = [structured["medical_framework"]]
+
+    if is_auto:
+        updates["research_triggers_seen"] = list(state.get("confirmed_triggers", []))
 
     return updates

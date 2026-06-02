@@ -73,6 +73,8 @@ class MigraineState(dict):
     unknown_trigger_candidates: Annotated[list[str], operator.add]  # novel items correlating with migraine days
 
     current_root_cause_hypothesis: str
+    root_cause_triggers_seen: list[str]        # snapshot of trigger set at last root_cause run
+    research_triggers_seen: list[str]          # snapshot of confirmed_triggers at last auto-research run
     root_cause_evidence: list[dict]            # [{claim, source, source_type}, ...]
     migraine_subtype: str
     protocol_version: int
@@ -85,6 +87,7 @@ class MigraineState(dict):
     weather_snapshot: dict                       # serialised WeatherSnapshot
     red_flag_active: bool
     moh_alert_active: bool
+    protocol_refresh_recommended: bool
 
     # ── Conversation (LangGraph manages append + dedup) ───────────────────────
     messages: Annotated[list, add_messages]
@@ -102,6 +105,8 @@ def default_state() -> dict:
         "medical_frameworks_applied": [],
         "unknown_trigger_candidates": [],
         "current_root_cause_hypothesis": "",
+        "root_cause_triggers_seen": [],
+        "research_triggers_seen": [],
         "root_cause_evidence": [],
         "migraine_subtype": "",
         "protocol_version": 0,
@@ -112,5 +117,6 @@ def default_state() -> dict:
         "weather_snapshot": WeatherSnapshot().model_dump(),
         "red_flag_active": False,
         "moh_alert_active": False,
+        "protocol_refresh_recommended": False,
         "messages": [],
     }

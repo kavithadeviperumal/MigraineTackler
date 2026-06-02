@@ -71,9 +71,10 @@ If data is insufficient for a confident hypothesis, say so and describe what's s
 
 
 def _build_context(state: MigraineState) -> str:
-    lst = lambda v: ", ".join(v) if v else "none yet"
+    lst = lambda v: ", ".join(dict.fromkeys(v)) if v else "none yet"
 
     stats = state.get("deterministic_stats", {})
+    research = state.get("research_findings", [])[-20:]
     lines = [
         "=== TRIGGER PATTERNS ===",
         f"Confirmed triggers:  {lst(state.get('confirmed_triggers', []))}",
@@ -92,7 +93,7 @@ def _build_context(state: MigraineState) -> str:
         f"MOH alert active:      {stats.get('moh_alert_active', False)}",
         "",
         "=== RESEARCH FINDINGS ===",
-        "\n".join(state.get("research_findings", [])) or "None recorded.",
+        "\n".join(research) or "None recorded.",
         "",
         "=== PRIOR HYPOTHESIS ===",
         state.get("current_root_cause_hypothesis", "None established yet."),
@@ -121,9 +122,13 @@ def run(state: MigraineState) -> dict:
     text = response.content
     structured = _parse_structured(text)
 
+    confirmed = set(state.get("confirmed_triggers", []))
+    suspected = set(state.get("suspected_triggers", []))
+
     updates: dict = {
         "current_agent": "root_cause",
         "messages": [response],
+        "root_cause_triggers_seen": list(confirmed | suspected),
     }
 
     if structured.get("hypothesis"):
