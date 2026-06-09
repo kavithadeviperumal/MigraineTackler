@@ -8,16 +8,17 @@ in chunk_index order so the text reads coherently.
 
 import hashlib
 import io
+import httpx
 from sqlalchemy import text
 from sqlmodel import Session
 
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from app.config import settings
 from app.models.knowledge_chunk import EMBEDDING_DIM, KnowledgeChunk
 
-_embeddings = GoogleGenerativeAIEmbeddings(
-    model="models/text-embedding-004",
-    google_api_key=settings.google_api_key,
+# Calls the v1 stable endpoint directly — text-embedding-004 is not available on v1beta
+_EMBED_URL = (
+    "https://generativelanguage.googleapis.com/v1/models/"
+    "text-embedding-004:embedContent"
 )
 
 # Maximum gap (in intermediate chunks) allowed before splitting into a new passage.
@@ -37,7 +38,14 @@ _SOURCE_LABELS = {
 # ── Embedding ─────────────────────────────────────────────────────────────────
 
 def _embed(text_input: str) -> list[float]:
-    return _embeddings.embed_query(text_input)
+    r = httpx.post(
+        _EMBED_URL,
+        params={"key": settings.google_api_key},
+        json={"content": {"parts": [{"text": text_input}]}},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.json()["embedding"]["values"]
 
 
 # ── Text chunking ─────────────────────────────────────────────────────────────
