@@ -15,10 +15,7 @@ from sqlmodel import Session
 from app.config import settings
 from app.models.knowledge_chunk import EMBEDDING_DIM, KnowledgeChunk
 
-_EMBED_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "text-embedding-004:embedContent"
-)
+_EMBED_URL = "https://api.openai.com/v1/embeddings"
 
 # Maximum gap (in intermediate chunks) allowed before splitting into a new passage.
 # Gap of 2 means: if matched indices are 3 and 6, include chunks 4 and 5.
@@ -39,12 +36,12 @@ _SOURCE_LABELS = {
 def _embed(text_input: str) -> list[float]:
     r = httpx.post(
         _EMBED_URL,
-        params={"key": settings.google_api_key},
-        json={"content": {"parts": [{"text": text_input}]}},
+        headers={"Authorization": f"Bearer {settings.openai_api_key}"},
+        json={"model": "text-embedding-3-small", "input": text_input, "dimensions": EMBEDDING_DIM},
         timeout=30,
     )
     r.raise_for_status()
-    return r.json()["embedding"]["values"]
+    return r.json()["data"][0]["embedding"]
 
 
 # ── Text chunking ─────────────────────────────────────────────────────────────

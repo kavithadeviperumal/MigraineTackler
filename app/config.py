@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     # Google Gemini
     google_api_key: str = ""
 
+    # OpenAI
+    openai_api_key: str = ""
+
     # LangSmith
     langchain_tracing_v2: bool = False
     langchain_api_key: str = ""
