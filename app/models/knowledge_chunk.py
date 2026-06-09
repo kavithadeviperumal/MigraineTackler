@@ -4,7 +4,7 @@ from sqlalchemy import Column, Text
 from pgvector.sqlalchemy import Vector
 from sqlmodel import SQLModel, Field
 
-EMBEDDING_DIM = 768  # Google text-embedding-004
+EMBEDDING_DIM = 768  # Google embedding-001
 
 # Valid source types.
 # clinical_guideline is system-seeded (guideline_seeder.py), not user-uploaded.

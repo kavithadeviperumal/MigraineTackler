@@ -15,10 +15,9 @@ from sqlmodel import Session
 from app.config import settings
 from app.models.knowledge_chunk import EMBEDDING_DIM, KnowledgeChunk
 
-# Calls the v1 stable endpoint directly — text-embedding-004 is not available on v1beta
 _EMBED_URL = (
-    "https://generativelanguage.googleapis.com/v1/models/"
-    "text-embedding-004:embedContent"
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "embedding-001:embedContent"
 )
 
 # Maximum gap (in intermediate chunks) allowed before splitting into a new passage.
