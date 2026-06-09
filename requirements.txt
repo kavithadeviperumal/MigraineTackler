@@ -3,7 +3,6 @@ langgraph>=0.2.0
 langgraph-checkpoint-postgres>=2.0.0
 langsmith>=0.2.0
 streamlit>=1.40.0
-streamlit-local-storage>=0.0.1
 sqlmodel>=0.0.21
 pydantic-settings>=2.0.0
 python-dotenv>=1.0.0

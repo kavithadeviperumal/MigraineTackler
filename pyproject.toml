@@ -17,7 +17,6 @@ dependencies = [
     "psycopg[binary]>=3.1.0",
     # UI
     "streamlit>=1.40.0",
-    "streamlit-local-storage>=0.0.1",
     # Database
     "sqlmodel>=0.0.21",
     # Config + env
