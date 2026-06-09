@@ -137,6 +137,11 @@ def _parse_structured(text: str) -> dict:
         return {}
 
 
+def _parse_summary(text: str) -> str:
+    match = re.search(r"### PATTERN SUMMARY\s*(.*?)(?=###|\Z)", text, re.DOTALL)
+    return match.group(1).strip() if match else text
+
+
 def run(state: MigraineState) -> dict:
     since = date.today() - timedelta(days=60)
 
@@ -156,7 +161,7 @@ def run(state: MigraineState) -> dict:
     updates: dict = {
         "current_agent": "pattern",
         "messages": [response],
-        "session_history_summary": text,
+        "session_history_summary": _parse_summary(text),
     }
 
     if structured.get("confirmed_triggers"):
