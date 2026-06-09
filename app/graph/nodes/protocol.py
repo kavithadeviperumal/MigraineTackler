@@ -2,15 +2,15 @@ import json
 import re
 from datetime import date
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.graph.state import MigraineState, Protocol, ProtocolItem
 from app.config import settings
 
-_llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
-    google_api_key=settings.google_api_key,
+_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    api_key=settings.openai_api_key,
     max_tokens=3000,
 )
 

@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 from statistics import mean
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from sqlmodel import Session
 
@@ -10,9 +10,9 @@ from app.database import engine
 from app.services.log_service import list_recent
 from app.config import settings
 
-_llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
-    google_api_key=settings.google_api_key,
+_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    api_key=settings.openai_api_key,
     max_tokens=2500,
 )
 
