@@ -8,8 +8,6 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.log_entry import LogEntry
 from app.api.routes import logs, analyze, auth, profile, shortcut, knowledge
-from app.mcp_server.server import mcp as mcp_server
-from app.mcp_server.auth_middleware import MCPAuthMiddleware
 
 
 @asynccontextmanager
@@ -29,9 +27,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="MigraineTackler API", version="0.1.0", lifespan=lifespan)
-
-# MCP server mounted at /mcp — JWT-authenticated, multi-user safe
-app.mount("/mcp", MCPAuthMiddleware(mcp_server.streamable_http_app()))
 
 app.include_router(auth.router,    prefix="/auth",    tags=["auth"])
 app.include_router(profile.router, prefix="/profile", tags=["profile"])
