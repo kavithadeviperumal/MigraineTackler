@@ -1,3 +1,4 @@
+import threading
 import psycopg
 from sqlalchemy.engine import make_url
 from langgraph.graph import StateGraph, END
@@ -131,12 +132,15 @@ def compile_graph():
     return graph.compile(checkpointer=checkpointer)
 
 
-# Lazy singleton — opened on first call, not at import time.
+# Lazy singleton — thread-safe; warmup thread and request handler may race on first call.
 _graph = None
+_graph_lock = threading.Lock()
 
 
 def get_graph():
     global _graph
     if _graph is None:
-        _graph = compile_graph()
+        with _graph_lock:
+            if _graph is None:
+                _graph = compile_graph()
     return _graph

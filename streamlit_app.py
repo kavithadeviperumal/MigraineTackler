@@ -118,7 +118,7 @@ def call_analyze(intent: str, log_id: int | None = None, message: str | None = N
         body["current_log_id"] = log_id
     if message:
         body["message"] = message
-    return api_post("/analyze", body)
+    return api_post("/analyze", body, timeout=120)
 
 
 # ── Shared utilities ──────────────────────────────────────────────────────────

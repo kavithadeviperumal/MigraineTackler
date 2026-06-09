@@ -17,11 +17,7 @@ async def lifespan(app: FastAPI):
     create_db_and_tables()
 
     from app.graph.graph import get_graph
-    try:
-        get_graph()  # run checkpointer.setup() at startup, not on first request
-    except Exception:
-        import logging
-        logging.getLogger(__name__).warning("Graph warm-up failed; will retry on first request.")
+    threading.Thread(target=get_graph, daemon=True).start()
 
     def _seed_guidelines():
         from app.services.guideline_seeder import seed_guidelines
