@@ -3,6 +3,7 @@ import httpx
 from contextlib import contextmanager
 from datetime import date, datetime, time, timedelta
 from components.time_picker import time_picker as _time_picker_widget
+from streamlit_local_storage import LocalStorage
 
 API_BASE = st.secrets.get("API_BASE", "http://localhost:8000")
 
@@ -71,6 +72,20 @@ for _k, _v in {
 }.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
+
+# ── Persistent auth via localStorage ─────────────────────────────────────────
+
+_ls = LocalStorage()
+
+if st.session_state.token is None:
+    _saved_token    = _ls.getItem("mt_token")
+    _saved_user_id  = _ls.getItem("mt_user_id")
+    _saved_username = _ls.getItem("mt_username")
+    if _saved_token:
+        st.session_state.token    = _saved_token
+        st.session_state.user_id  = _saved_user_id
+        st.session_state.username = _saved_username
+        st.rerun()
 
 # ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -227,6 +242,9 @@ def _render_auth_page():
                     st.session_state.user_id = result["id"]
                     st.session_state.username = result["username"]
                     st.session_state.token = result["token"]
+                    _ls.setItem("mt_token",    result["token"])
+                    _ls.setItem("mt_user_id",  result["id"])
+                    _ls.setItem("mt_username", result["username"])
                     st.rerun()
 
         with tab_register:
@@ -247,6 +265,9 @@ def _render_auth_page():
                         st.session_state.user_id = result["id"]
                         st.session_state.username = result["username"]
                         st.session_state.token = result["token"]
+                        _ls.setItem("mt_token",    result["token"])
+                        _ls.setItem("mt_user_id",  result["id"])
+                        _ls.setItem("mt_username", result["username"])
                         st.success("Account created! Setting up your profile...")
                         st.rerun()
 
@@ -661,6 +682,9 @@ with st.sidebar:
     st.title("🧠 MigraineTackler")
     st.caption(f"Logged in as **{st.session_state.username}**")
     if st.button("Log out", use_container_width=True):
+        _ls.deleteItem("mt_token")
+        _ls.deleteItem("mt_user_id")
+        _ls.deleteItem("mt_username")
         for k in ["user_id", "username", "token", "intake_messages", "research_messages",
                   "sos_pending", "sos_data", "reset_confirm", "geo_city", "onboarding_step", "onboarding_data"]:
             st.session_state[k] = [] if k.endswith("messages") else ({} if k in ("sos_data", "onboarding_data") else (1 if k == "onboarding_step" else (False if k in ("sos_pending", "reset_confirm") else (None if k in ("user_id", "username", "token") else ""))))
