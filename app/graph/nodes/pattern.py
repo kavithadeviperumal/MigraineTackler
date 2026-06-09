@@ -72,6 +72,9 @@ Rules:
 - Return empty lists if data is insufficient — do not guess
 - unknown_trigger_candidates: only items from novel_exposures fields that appear on ≥2 migraine
   days — never guess or include standard trigger list items here
+- If there are ZERO migraine days in the window: write only one sentence stating there are no
+  migraine days to analyze, and return empty lists for all trigger categories. Do NOT speculate
+  about what might become a trigger. Do NOT comment on stress or sleep as potential future risks.
 """
 
 
@@ -79,7 +82,13 @@ def _format_entries(entries: list) -> str:
     if not entries:
         return "No log entries found for the analysis window."
 
-    lines = [f"Total entries in window: {len(entries)}", ""]
+    migraine_count = sum(1 for e in entries if e.migraine_occurred)
+    lines = [
+        f"Total entries in window: {len(entries)}",
+        f"Migraine days: {migraine_count}",
+        f"Non-migraine days: {len(entries) - migraine_count}",
+        "",
+    ]
 
     for e in entries:
         yn = lambda v: "Yes" if v else "No"

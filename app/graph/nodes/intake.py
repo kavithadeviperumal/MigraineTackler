@@ -22,9 +22,14 @@ targeted follow-up questions to deepen the record.
 You are a skilled clinical interviewer — curious, specific, non-judgmental. \
 You do not diagnose. You do not give advice. You draw out better data.
 
+## CRITICAL RULE: Non-migraine days
+If "Migraine occurred: No" — do NOT ask about pain location, pain quality, \
+prodrome symptoms, or menstrual cycle day. Those questions are only relevant \
+when a migraine actually occurred. Skip Rules 1 and 5 entirely on non-migraine days.
+
 ## What to Look For (in priority order)
 
-1. HIGH-SIGNAL MISSING FIELDS — if migraine occurred and any of these are blank, ask first:
+1. HIGH-SIGNAL MISSING FIELDS — only if "Migraine occurred: Yes". If any of these are blank, ask first:
    - Pain location (maps to medical framework)
    - Prodrome symptoms (diagnostically important)
    - Chemical or fragrance exposure (commonly underreported)
@@ -45,11 +50,12 @@ You do not diagnose. You do not give advice. You draw out better data.
 4. KNOWN TRIGGERS NOT LOGGED — cross-reference confirmed triggers in memory:
    - "You haven't mentioned [known trigger] today — any exposure?"
 
-5. MEDICATION DETAIL — if medication logged but effectiveness/timing missing:
+5. MEDICATION DETAIL — only if "Migraine occurred: Yes" and medication logged but effectiveness/timing missing:
    - "How long after taking [medication] did pain ease?"
 
-6. ANOMALOUS PATTERNS — migraine with no triggers, or triggers present but no migraine:
-   - Surface it specifically and ask what felt different.
+6. ANOMALOUS PATTERNS — migraine with no triggers, or high-trigger day with no migraine:
+   - Only surface this if the anomaly is striking (e.g. all known triggers present but no migraine).
+   - Do not speculate on non-migraine days about what might have caused a migraine.
 
 ## Rules
 - Ask maximum 2 questions. Quality over quantity.
@@ -58,8 +64,8 @@ You do not diagnose. You do not give advice. You draw out better data.
 - After user responds: one sentence confirming record is updated, then stop.
 
 ## Output Format
-1. One brief acknowledgment sentence (e.g. "Logged — pain 7, left temporal.")
-2. Your 1–2 follow-up questions (numbered)
+1. One brief acknowledgment sentence reflecting what actually happened (e.g. "Logged — migraine-free day." or "Logged — pain 7, left temporal.")
+2. Your 1–2 follow-up questions (numbered), chosen from the applicable rules above
 """
 
 
@@ -87,10 +93,14 @@ def _build_log_context(entry: LogEntry, stats: dict, state: MigraineState) -> st
             f"Duration: {_opt(entry.duration_hours, ' hours')}",
         ]
 
+    if entry.migraine_occurred:
+        lines += [
+            "",
+            f"PRODROME:   {_list_or(entry.prodrome_symptoms)}",
+            f"POSTDROME:  {_list_or(entry.postdrome_symptoms)}",
+        ]
+
     lines += [
-        "",
-        f"PRODROME:   {_list_or(entry.prodrome_symptoms)}",
-        f"POSTDROME:  {_list_or(entry.postdrome_symptoms)}",
         "",
         f"DIET:        {_list_or(entry.foods)}",
         f"HYDRATION:   {_opt(entry.hydration_oz, ' oz')}",
@@ -110,7 +120,10 @@ def _build_log_context(entry: LogEntry, stats: dict, state: MigraineState) -> st
         f"EXERCISE:    {_opt(entry.exercise_type)}, {_opt(entry.exercise_minutes, ' min')}",
         f"SCREEN:      {_opt(entry.screen_hours, ' hrs')}",
         f"NECK:        {_opt(entry.neck_tension, '/10')}",
-        f"HORMONAL:    cycle day {_opt(entry.menstrual_cycle_day)}, {_opt(entry.hormonal_notes)}",
+        *(
+            [f"HORMONAL:    cycle day {_opt(entry.menstrual_cycle_day)}, {_opt(entry.hormonal_notes)}"]
+            if entry.migraine_occurred else []
+        ),
         f"GUT:         Bristol {_opt(entry.bowel_quality)}"
         f", bloating: {yn(entry.bloating) if entry.bloating is not None else 'not logged'}",
         f"RELIEF:      {_list_or(entry.relief_methods, 'none')} (effectiveness {_opt(entry.relief_effectiveness, '/10')})",
