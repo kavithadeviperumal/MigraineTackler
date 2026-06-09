@@ -1,5 +1,5 @@
 import psycopg
-from urllib.parse import urlparse, urlunparse, quote, unquote
+from sqlalchemy.engine import make_url
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres import PostgresSaver
 from app.graph.state import MigraineState
@@ -7,16 +7,16 @@ from app.graph.nodes import intake, pattern, research, root_cause, protocol, lif
 from app.config import settings
 
 
-def _encode_db_url(url: str) -> str:
-    """Percent-encode the password so psycopg can parse URLs with special chars."""
-    parsed = urlparse(url)
-    if parsed.password:
-        safe_pw = quote(unquote(parsed.password), safe="")
-        userinfo = f"{parsed.username}:{safe_pw}"
-        host = parsed.hostname
-        netloc = f"{userinfo}@{host}" + (f":{parsed.port}" if parsed.port else "")
-        parsed = parsed._replace(netloc=netloc)
-    return urlunparse(parsed)
+def _psycopg_connect(database_url: str) -> psycopg.Connection:
+    """Parse DB URL via SQLAlchemy (handles special chars in passwords) and connect."""
+    u = make_url(database_url)
+    return psycopg.connect(
+        host=u.host,
+        port=u.port or 5432,
+        dbname=u.database,
+        user=u.username,
+        password=u.password,
+    )
 
 
 # ── Intent → node routing ─────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ def build_graph() -> StateGraph:
 
 def compile_graph():
     graph = build_graph()
-    conn = psycopg.connect(_encode_db_url(settings.database_url))
+    conn = _psycopg_connect(settings.database_url)
     checkpointer = PostgresSaver(conn)
     checkpointer.setup()
     return graph.compile(checkpointer=checkpointer)
