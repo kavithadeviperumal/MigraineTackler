@@ -16,6 +16,13 @@ from app.mcp_server.auth_middleware import MCPAuthMiddleware
 async def lifespan(app: FastAPI):
     create_db_and_tables()
 
+    from app.graph.graph import get_graph
+    try:
+        get_graph()  # run checkpointer.setup() at startup, not on first request
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("Graph warm-up failed; will retry on first request.")
+
     def _seed_guidelines():
         from app.services.guideline_seeder import seed_guidelines
         with Session(engine) as session:
