@@ -1,9 +1,22 @@
 import psycopg
+from urllib.parse import urlparse, urlunparse, quote, unquote
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres import PostgresSaver
 from app.graph.state import MigraineState
 from app.graph.nodes import intake, pattern, research, root_cause, protocol, lifestyle_audit
 from app.config import settings
+
+
+def _encode_db_url(url: str) -> str:
+    """Percent-encode the password so psycopg can parse URLs with special chars."""
+    parsed = urlparse(url)
+    if parsed.password:
+        safe_pw = quote(unquote(parsed.password), safe="")
+        userinfo = f"{parsed.username}:{safe_pw}"
+        host = parsed.hostname
+        netloc = f"{userinfo}@{host}" + (f":{parsed.port}" if parsed.port else "")
+        parsed = parsed._replace(netloc=netloc)
+    return urlunparse(parsed)
 
 
 # ── Intent → node routing ─────────────────────────────────────────────────────
@@ -110,7 +123,7 @@ def build_graph() -> StateGraph:
 
 def compile_graph():
     graph = build_graph()
-    conn = psycopg.connect(settings.database_url)
+    conn = psycopg.connect(_encode_db_url(settings.database_url))
     checkpointer = PostgresSaver(conn)
     checkpointer.setup()
     return graph.compile(checkpointer=checkpointer)
