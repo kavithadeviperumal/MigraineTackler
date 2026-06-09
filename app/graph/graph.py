@@ -125,6 +125,7 @@ def build_graph() -> StateGraph:
 def compile_graph():
     graph = build_graph()
     conn = _psycopg_connect(settings.database_url, autocommit=True)
+    conn.execute("SET statement_timeout = 0")  # allow CREATE INDEX CONCURRENTLY to finish
     checkpointer = PostgresSaver(conn)
     checkpointer.setup()
     return graph.compile(checkpointer=checkpointer)
