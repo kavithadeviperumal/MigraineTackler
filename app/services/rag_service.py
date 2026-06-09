@@ -17,7 +17,7 @@ from app.models.knowledge_chunk import EMBEDDING_DIM, KnowledgeChunk
 
 _EMBED_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "embedding-001:embedContent"
+    "text-embedding-004:embedContent"
 )
 
 # Maximum gap (in intermediate chunks) allowed before splitting into a new passage.
