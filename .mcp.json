@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "migrainetackler": {
+      "command": "python",
+      "args": ["-m", "app.mcp_server.server"],
+      "env": {
+        "MIGRAINE_USER_ID": "1"
+      }
+    }
+  }
+}

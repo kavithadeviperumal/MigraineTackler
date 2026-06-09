@@ -3,7 +3,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session
 
-from app.config import settings
+from app.core.security import decode_user_id
 from app.database import get_session_dep
 from app.models.user import User
 
@@ -12,8 +12,7 @@ _bearer = HTTPBearer()
 
 def _decode_token(token: str) -> int:
     try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=["HS256"])
-        return int(payload["sub"])
+        return decode_user_id(token)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
     except jwt.InvalidTokenError:

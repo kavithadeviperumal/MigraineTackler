@@ -3,9 +3,12 @@ import re
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
+from sqlmodel import Session
 
 from app.graph.state import MigraineState
 from app.config import settings
+from app.database import engine
+from app.services.rag_service import retrieve_relevant
 
 _llm = ChatGoogleGenerativeAI(
     model="gemini-2.0-flash",
@@ -70,11 +73,26 @@ If data is insufficient for a confident hypothesis, say so and describe what's s
 """
 
 
-def _build_context(state: MigraineState) -> str:
+def _format_kb_block(passages: list[dict]) -> str:
+    if not passages:
+        return ""
+    lines = ["=== KNOWLEDGE BASE CONTEXT (Clinical Guidelines / Ayurvedic / Doctor Notes) ==="]
+    for i, p in enumerate(passages, 1):
+        lines += [
+            f"\n[KB-{i}] {p['doc_title']} [{p['source_label']}]"
+            f" (relevance: {p['top_similarity']})",
+            f"    {p['combined_text']}",
+        ]
+    return "\n".join(lines)
+
+
+def _build_context(state: MigraineState, kb_passages: list[dict]) -> str:
     lst = lambda v: ", ".join(dict.fromkeys(v)) if v else "none yet"
 
-    stats = state.get("deterministic_stats", {})
+    stats    = state.get("deterministic_stats", {})
     research = state.get("research_findings", [])[-20:]
+    kb_block = _format_kb_block(kb_passages)
+
     lines = [
         "=== TRIGGER PATTERNS ===",
         f"Confirmed triggers:  {lst(state.get('confirmed_triggers', []))}",
@@ -92,8 +110,14 @@ def _build_context(state: MigraineState) -> str:
         f"NSAID days (30d):      {stats.get('nsaid_days_last_30d', 0)}",
         f"MOH alert active:      {stats.get('moh_alert_active', False)}",
         "",
-        "=== RESEARCH FINDINGS ===",
+        "=== RESEARCH FINDINGS (from Research Agent) ===",
         "\n".join(research) or "None recorded.",
+    ]
+
+    if kb_block:
+        lines += ["", kb_block]
+
+    lines += [
         "",
         "=== PRIOR HYPOTHESIS ===",
         state.get("current_root_cause_hypothesis", "None established yet."),
@@ -112,7 +136,21 @@ def _parse_structured(text: str) -> dict:
 
 
 def run(state: MigraineState) -> dict:
-    context = _build_context(state)
+    # Retrieve KB passages relevant to the current trigger profile
+    kb_passages: list[dict] = []
+    user_id = state.get("user_id")
+    if user_id:
+        confirmed = state.get("confirmed_triggers", [])
+        suspected = state.get("suspected_triggers", [])
+        if confirmed or suspected:
+            query = "migraine root cause mechanism " + ", ".join(confirmed + suspected)
+            try:
+                with Session(engine) as session:
+                    kb_passages = retrieve_relevant(session, user_id, query, top_k=6)
+            except Exception:
+                kb_passages = []
+
+    context = _build_context(state, kb_passages)
 
     response = _llm.invoke([
         SystemMessage(content=SYSTEM_PROMPT),

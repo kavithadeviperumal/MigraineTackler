@@ -39,6 +39,7 @@ def analyze(
     state_update: dict = {
         "intent": request.intent,
         "deterministic_stats": stats.model_dump(),
+        "user_id": current_user.id,
     }
     if request.current_log_id is not None:
         state_update["current_log_id"] = request.current_log_id

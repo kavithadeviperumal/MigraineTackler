@@ -30,6 +30,10 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     # Auth
     "pyjwt>=2.8.0",
+    # Vector DB + PDF
+    "pgvector>=0.3.0",
+    "pypdf>=4.0.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]

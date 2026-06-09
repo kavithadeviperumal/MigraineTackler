@@ -81,6 +81,9 @@ class MigraineState(dict):
     current_protocol: dict                       # serialised Protocol model
     session_history_summary: str
 
+    # ── Identity (set once on first session, never changes) ─────────────────────
+    user_id: Optional[int]                       # FK into users table — used for RAG retrieval
+
     # ── Current session context (replaced each session) ──────────────────────
     current_log_id: Optional[int]                # FK into migraine.db LogEntry
     deterministic_stats: dict                    # serialised DeterministicStats
@@ -98,6 +101,7 @@ def default_state() -> dict:
     return {
         "intent": "",
         "current_agent": "",
+        "user_id": None,
         "confirmed_triggers": [],
         "suspected_triggers": [],
         "ruled_out_triggers": [],

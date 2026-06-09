@@ -6,9 +6,12 @@ from datetime import date
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from sqlmodel import Session
 
 from app.graph.state import MigraineState
 from app.config import settings
+from app.database import engine
+from app.services.rag_service import retrieve_relevant, store_research_chunk
 
 _llm = ChatGoogleGenerativeAI(
     model="gemini-2.0-flash",
@@ -24,28 +27,30 @@ _SEMANTIC_SCHOLAR = "https://api.semanticscholar.org/graph/v1/paper/search"
 _SS_FIELDS        = "title,authors,year,abstract,externalIds,citationCount,venue"
 
 SYSTEM_PROMPT = """\
-You are the Research Agent for MigraineTackler. You have been provided with real research paper \
-abstracts retrieved from PubMed and Semantic Scholar. Synthesize a clear, evidence-based answer \
-using ONLY the provided abstracts.
+You are the Research Agent for MigraineTackler. You synthesize evidence across multiple source \
+types — live research papers from PubMed/Semantic Scholar AND the user's personal Knowledge Base \
+which may include clinical guidelines, Ayurvedic texts, and doctor notes.
 
 ## CRITICAL RULES
-- Cite ONLY papers from the RETRIEVED ABSTRACTS list using their index number [1], [2], etc.
-- Do NOT introduce facts, statistics, or claims not present in the provided abstracts
-- Do NOT add citations from your training knowledge — if the retrieved papers don't cover it, say so
-- If retrieved papers are insufficient to answer, state that explicitly
+- Cite live papers as [1], [2], etc. using their index in RETRIEVED ABSTRACTS
+- Cite Knowledge Base passages as [KB-1], [KB-2], etc. using their index in KNOWLEDGE BASE CONTEXT
+- Use ONLY the provided sources — do NOT introduce facts from training knowledge
+- If sources are insufficient to answer, say so explicitly
+- When sources agree across frameworks (e.g. Western + Ayurvedic), note the convergence
 
 ## How to Answer
 
-1. MECHANISM — explain the underlying physiological mechanism if present in the abstracts
-2. EVIDENCE QUALITY — based on what the abstracts describe (RCT, meta-analysis, observational, etc.)
-3. PERSONAL RELEVANCE — connect findings to the user's trigger profile where relevant
-4. PRACTICAL TAKEAWAY — one concrete thing the user can do or log
-5. MEDICAL CONSULTATION — flag anything requiring a doctor's involvement
+1. MECHANISM — explain the underlying physiological or traditional mechanism from the sources
+2. EVIDENCE QUALITY — RCT / meta-analysis / observational / traditional-text (note the type)
+3. CROSS-FRAMEWORK INSIGHT — if both Western and Ayurvedic/traditional sources speak to this, highlight where they converge or differ
+4. PERSONAL RELEVANCE — connect findings to the user's trigger profile
+5. PRACTICAL TAKEAWAY — one concrete thing the user can do or log
+6. MEDICAL CONSULTATION — flag anything requiring a doctor's involvement
 
 ## Output Format
 
 ### RESEARCH FINDINGS
-Your synthesized answer — 3–6 sentences. Cite inline as [1], [2], etc.
+Your synthesized answer — 3–6 sentences. Cite inline as [1], [KB-1], etc.
 
 ### STRUCTURED DATA
 ```json
@@ -55,7 +60,8 @@ Your synthesized answer — 3–6 sentences. Cite inline as [1], [2], etc.
   "evidence_quality": "well-established | emerging | anecdotal",
   "medical_framework": "name of the relevant clinical framework or pathway, if any",
   "action": "one concrete thing to log or try",
-  "cited_indices": [1, 2]
+  "cited_indices": [1, 2],
+  "cited_kb_indices": [1]
 }
 ```
 """
@@ -230,6 +236,20 @@ def _retrieve_papers(query: str, max_per_source: int = 5) -> list[dict]:
 
 # ── Prompt helpers ────────────────────────────────────────────────────────────
 
+def _format_kb_block(passages: list[dict]) -> str:
+    """Format aggregated Knowledge Base passages for the prompt."""
+    if not passages:
+        return ""
+    lines = ["=== KNOWLEDGE BASE CONTEXT ==="]
+    for i, p in enumerate(passages, 1):
+        lines += [
+            f"\n[KB-{i}] {p['doc_title']} [{p['source_label']}]"
+            f" (relevance: {p['top_similarity']}, {p['chunk_count']} chunk(s))",
+            f"    {p['combined_text']}",
+        ]
+    return "\n".join(lines)
+
+
 def _format_papers_block(papers: list[dict]) -> str:
     lines = ["=== RETRIEVED RESEARCH ABSTRACTS ==="]
     for i, p in enumerate(papers, 1):
@@ -245,7 +265,12 @@ def _format_papers_block(papers: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _build_context(papers: list[dict], question: str, state: MigraineState) -> str:
+def _build_context(
+    papers: list[dict],
+    kb_passages: list[dict],
+    question: str,
+    state: MigraineState,
+) -> str:
     lst = lambda v: ", ".join(dict.fromkeys(v)) if v else "none identified"
     user_ctx = "\n".join([
         "=== USER CONTEXT (for relevance) ===",
@@ -254,8 +279,14 @@ def _build_context(papers: list[dict], question: str, state: MigraineState) -> s
         f"Suspected triggers:  {lst(state.get('suspected_triggers', []))}",
         f"Current hypothesis:  {state.get('current_root_cause_hypothesis', 'none yet')}",
     ])
-    papers_block = _format_papers_block(papers) if papers else "No papers retrieved."
-    return "\n\n".join([f"RESEARCH QUESTION: {question}", user_ctx, papers_block])
+    papers_block = _format_papers_block(papers) if papers else "No live papers retrieved."
+    kb_block = _format_kb_block(kb_passages)
+
+    parts = [f"RESEARCH QUESTION: {question}", user_ctx]
+    if kb_block:
+        parts.append(kb_block)
+    parts.append(papers_block)
+    return "\n\n".join(parts)
 
 
 def _extract_question(state: MigraineState) -> tuple[str, bool]:
@@ -309,15 +340,28 @@ def run(state: MigraineState) -> dict:
             "messages": [AIMessage(content="No research question provided. Please ask a specific question about migraines or your triggers.")],
         }
 
+    user_id = state.get("user_id")
+
+    # 1. Retrieve from personal knowledge base (clinical guidelines, Ayurvedic, doctor notes,
+    #    and previously cached PubMed abstracts) before hitting live APIs.
+    kb_passages: list[dict] = []
+    if user_id:
+        try:
+            with Session(engine) as session:
+                kb_passages = retrieve_relevant(session, user_id, question, top_k=8)
+        except Exception:
+            kb_passages = []
+
+    # 2. Fetch live papers from PubMed + Semantic Scholar.
     papers = _retrieve_papers(question)
 
-    if not papers:
+    if not papers and not kb_passages:
         return {
             "current_agent": "research",
-            "messages": [AIMessage(content="Could not retrieve research papers from PubMed or Semantic Scholar. Please check your internet connection and try again.")],
+            "messages": [AIMessage(content="Could not retrieve research papers from PubMed or Semantic Scholar, and no relevant knowledge base context found. Please check your internet connection and try again.")],
         }
 
-    context = _build_context(papers, question, state)
+    context = _build_context(papers, kb_passages, question, state)
 
     try:
         response = _llm.invoke([
@@ -333,9 +377,9 @@ def run(state: MigraineState) -> dict:
     text       = response.content
     structured = _parse_structured(text)
 
-    cited_indices   = structured.get("cited_indices", [])
+    cited_indices    = structured.get("cited_indices", [])
     references_block = _format_references_block(papers, cited_indices)
-    final_content   = text + references_block if references_block else text
+    final_content    = text + references_block if references_block else text
 
     updates: dict = {
         "current_agent": "research",
@@ -343,8 +387,9 @@ def run(state: MigraineState) -> dict:
     }
 
     if structured.get("key_finding") and structured.get("topic"):
-        n_cited = len(cited_indices)
-        suffix  = f" ({n_cited} papers retrieved from PubMed/Semantic Scholar)"
+        n_live  = len(cited_indices)
+        n_kb    = len(structured.get("cited_kb_indices", []))
+        suffix  = f" ({n_live} live papers; {n_kb} KB passages)"
         updates["research_findings"] = [
             f"[{date.today()}] {structured['topic']}: {structured['key_finding']}{suffix}"
         ]
@@ -354,5 +399,22 @@ def run(state: MigraineState) -> dict:
 
     if is_auto:
         updates["research_triggers_seen"] = list(state.get("confirmed_triggers", []))
+
+    # 3. Cache new live abstracts into the knowledge base for future semantic retrieval.
+    if user_id and papers:
+        try:
+            with Session(engine) as session:
+                for paper in papers:
+                    if paper.get("abstract") and paper.get("pmid"):
+                        store_research_chunk(
+                            session=session,
+                            user_id=user_id,
+                            source_type=paper["source"].lower().replace(" ", "_"),
+                            doc_title=paper["title"],
+                            doc_id=paper["pmid"],
+                            text_body=paper["abstract"],
+                        )
+        except Exception:
+            pass  # caching failure is non-fatal
 
     return updates

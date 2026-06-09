@@ -1,27 +1,41 @@
+import threading
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from sqlmodel import Session, delete
 
-from app.database import create_db_and_tables, get_session_dep
+from app.database import create_db_and_tables, engine, get_session_dep
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.log_entry import LogEntry
-from app.api.routes import logs, analyze, auth, profile, shortcut
+from app.api.routes import logs, analyze, auth, profile, shortcut, knowledge
+from app.mcp_server.server import mcp as mcp_server
+from app.mcp_server.auth_middleware import MCPAuthMiddleware
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_db_and_tables()
+
+    def _seed_guidelines():
+        from app.services.guideline_seeder import seed_guidelines
+        with Session(engine) as session:
+            seed_guidelines(session)
+
+    threading.Thread(target=_seed_guidelines, daemon=True).start()
     yield
 
 
 app = FastAPI(title="MigraineTackler API", version="0.1.0", lifespan=lifespan)
 
+# MCP server mounted at /mcp — JWT-authenticated, multi-user safe
+app.mount("/mcp", MCPAuthMiddleware(mcp_server.streamable_http_app()))
+
 app.include_router(auth.router,    prefix="/auth",    tags=["auth"])
 app.include_router(profile.router, prefix="/profile", tags=["profile"])
 app.include_router(logs.router,    prefix="/logs",    tags=["logs"])
 app.include_router(analyze.router,   prefix="/analyze",   tags=["analyze"])
-app.include_router(shortcut.router,  prefix="/shortcut",  tags=["shortcut"])
+app.include_router(shortcut.router,   prefix="/shortcut",   tags=["shortcut"])
+app.include_router(knowledge.router,  prefix="/knowledge",  tags=["knowledge"])
 
 
 @app.post("/reset", tags=["dev"])

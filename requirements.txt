@@ -12,3 +12,7 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 pyjwt>=2.8.0
 psycopg[binary]>=3.1.0
+pgvector>=0.3.0
+pypdf>=4.0.0
+python-multipart>=0.0.9
+mcp>=1.2.0

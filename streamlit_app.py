@@ -66,6 +66,7 @@ for _k, _v in {
     "geo_city": "",
     "onboarding_step": 1,
     "onboarding_data": {},
+    "onboarding_complete": False,
     "lifestyle_audit_output": None,
 }.items():
     if _k not in st.session_state:
@@ -571,6 +572,7 @@ def _render_onboarding(existing_profile: dict):
                 else:
                     result = api_post("/profile/me", payload)
                 if result:
+                    st.session_state.onboarding_complete = True
                     st.session_state.onboarding_step = 6
                     st.rerun()
 
@@ -634,7 +636,10 @@ if "ref_foods" not in st.session_state:
     st.session_state.ref_foods = _rfd.get("foods", []) if _rfd else []
 _ref_foods: list[str] = st.session_state.ref_foods or _ALL_FOODS
 
-if not _profile.get("onboarding_complete"):
+if _profile.get("onboarding_complete"):
+    st.session_state.onboarding_complete = True
+
+if not st.session_state.onboarding_complete:
     if _profile:
         st.session_state.onboarding_data = {
             k: _profile.get(k) for k in [
@@ -659,6 +664,8 @@ with st.sidebar:
         for k in ["user_id", "username", "token", "intake_messages", "research_messages",
                   "sos_pending", "sos_data", "reset_confirm", "geo_city", "onboarding_step", "onboarding_data"]:
             st.session_state[k] = [] if k.endswith("messages") else ({} if k in ("sos_data", "onboarding_data") else (1 if k == "onboarding_step" else (False if k in ("sos_pending", "reset_confirm") else (None if k in ("user_id", "username", "token") else ""))))
+        st.session_state.onboarding_complete = False
+        st.session_state.pop("ref_foods", None)
         st.rerun()
 
     if st.session_state.sos_pending:
