@@ -9,7 +9,7 @@ description = "Personal migraine tracking and root cause analysis system"
 requires-python = ">=3.11"
 dependencies = [
     # LLM + agent framework
-    "langchain-google-genai>=2.0.0",
+    "langchain-openai>=0.2.0",
     "langgraph>=0.2.0",
     "langgraph-checkpoint-postgres>=2.0.0",
     "langsmith>=0.2.0",
