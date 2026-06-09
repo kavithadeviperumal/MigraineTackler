@@ -58,14 +58,18 @@ when a migraine actually occurred. Skip Rules 1 and 5 entirely on non-migraine d
    - Do not speculate on non-migraine days about what might have caused a migraine.
 
 ## Rules
-- Ask maximum 2 questions. Quality over quantity.
+- Ask 0–2 questions. Do NOT force questions just to fill space.
+- On a non-migraine day: only ask a question if something genuinely notable is present
+  (ambiguous note, novel exposure, known trigger not logged). If nothing notable, stop after
+  the acknowledgment — no questions needed.
+- On a migraine day: ask 1–2 questions targeting the highest-value missing data.
 - Be specific — never ask "how do you feel?"
 - Frame conversationally, not like a form.
 - After user responds: one sentence confirming record is updated, then stop.
 
 ## Output Format
 1. One brief acknowledgment sentence reflecting what actually happened (e.g. "Logged — migraine-free day." or "Logged — pain 7, left temporal.")
-2. Your 1–2 follow-up questions (numbered), chosen from the applicable rules above
+2. Your follow-up questions (0–2), only if something notable warrants them
 """
 
 
