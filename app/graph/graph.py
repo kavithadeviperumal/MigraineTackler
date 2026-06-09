@@ -7,7 +7,7 @@ from app.graph.nodes import intake, pattern, research, root_cause, protocol, lif
 from app.config import settings
 
 
-def _psycopg_connect(database_url: str) -> psycopg.Connection:
+def _psycopg_connect(database_url: str, autocommit: bool = False) -> psycopg.Connection:
     """Parse DB URL via SQLAlchemy (handles special chars in passwords) and connect."""
     u = make_url(database_url)
     return psycopg.connect(
@@ -16,6 +16,7 @@ def _psycopg_connect(database_url: str) -> psycopg.Connection:
         dbname=u.database,
         user=u.username,
         password=u.password,
+        autocommit=autocommit,
     )
 
 
@@ -123,7 +124,7 @@ def build_graph() -> StateGraph:
 
 def compile_graph():
     graph = build_graph()
-    conn = _psycopg_connect(settings.database_url)
+    conn = _psycopg_connect(settings.database_url, autocommit=True)
     checkpointer = PostgresSaver(conn)
     checkpointer.setup()
     return graph.compile(checkpointer=checkpointer)
