@@ -586,6 +586,7 @@ def _render_onboarding(existing_profile: dict):
                     result = api_post("/profile/me", payload)
                 if result:
                     st.session_state.onboarding_complete = True
+                    st.session_state.cached_profile = result
                     st.session_state.onboarding_step = 6
                     st.rerun()
 
@@ -642,7 +643,9 @@ if not st.session_state.user_id:
 
 # ── Onboarding gate ───────────────────────────────────────────────────────────
 
-_profile = api_get("/profile/me") or {}
+if "cached_profile" not in st.session_state:
+    st.session_state.cached_profile = api_get("/profile/me")
+_profile = st.session_state.cached_profile or {}
 
 if "ref_foods" not in st.session_state:
     _rfd = api_get("/profile/me/reference-foods")
@@ -680,6 +683,7 @@ with st.sidebar:
             st.session_state[k] = [] if k.endswith("messages") else ({} if k in ("sos_data", "onboarding_data") else (1 if k == "onboarding_step" else (False if k in ("sos_pending", "reset_confirm") else (None if k in ("user_id", "username", "token") else ""))))
         st.session_state.onboarding_complete = False
         st.session_state.pop("ref_foods", None)
+        st.session_state.pop("cached_profile", None)
         st.rerun()
 
     if st.session_state.sos_pending:
