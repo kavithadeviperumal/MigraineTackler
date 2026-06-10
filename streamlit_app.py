@@ -86,6 +86,22 @@ def _auth_headers() -> dict:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def _fetch_profile() -> tuple[dict | None, int | None]:
+    """Fetch /profile/me and return (body, http_status).
+    Returns (None, None) on connection/timeout errors so callers can
+    distinguish a real 404 (new user) from an unreachable server."""
+    try:
+        r = httpx.get(
+            f"{API_BASE}/profile/me",
+            headers=_auth_headers(),
+            timeout=10,
+            follow_redirects=True,
+        )
+        return (r.json() if r.status_code == 200 else None), r.status_code
+    except Exception:
+        return None, None
+
+
 def api_post(path: str, body: dict, timeout: int = 60) -> dict | None:
     try:
         r = httpx.post(f"{API_BASE}{path}", json=body, headers=_auth_headers(), timeout=timeout)
@@ -644,7 +660,17 @@ if not st.session_state.user_id:
 # ── Onboarding gate ───────────────────────────────────────────────────────────
 
 if "cached_profile" not in st.session_state:
-    st.session_state.cached_profile = api_get("/profile/me")
+    _fetched, _status = _fetch_profile()
+    if _status == 200:
+        st.session_state.cached_profile = _fetched
+    elif _status == 404:
+        st.session_state.cached_profile = {}  # new user — no profile yet
+    else:
+        # Connection error or server error: we don't know the user's state.
+        # Don't show onboarding — surface a recoverable error instead.
+        st.error("Unable to reach the server. Please refresh the page.")
+        st.stop()
+
 _profile = st.session_state.cached_profile or {}
 
 if "ref_foods" not in st.session_state:
