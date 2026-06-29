@@ -8,12 +8,21 @@ in chunk_index order so the text reads coherently.
 
 import hashlib
 import io
+import re
 import httpx
 from sqlalchemy import text
 from sqlmodel import Session
 
 from app.config import settings
 from app.models.knowledge_chunk import EMBEDDING_DIM, KnowledgeChunk
+
+# Matches section headers in structured medical documents:
+#   ALL CAPS lines:       BACKGROUND, METHODS AND MATERIALS:
+#   Markdown headers:     ## Introduction, ### Treatment
+#   Numbered sections:    1. Methods, 2) Results
+_SECTION_HEADER_RE = re.compile(
+    r"(?m)^(?:#{1,3}\s+\w|[A-Z][A-Z\s]{3,}:?|\d+[\.\)]\s+[A-Z]\w).*$"
+)
 
 _EMBED_URL = "https://api.openai.com/v1/embeddings"
 
@@ -85,6 +94,36 @@ def _chunk_text(body: str, chunk_size: int = 800, overlap: int = 150) -> list[st
     return [c for c in chunks if c.strip()]
 
 
+def _chunk_structured(body: str, chunk_size: int = 800, overlap: int = 150) -> list[str]:
+    """
+    Split at section header boundaries first, then apply paragraph/sentence
+    chunking within each section. Falls back to _chunk_text when fewer than
+    2 headers are detected (e.g. free-form doctor notes).
+    """
+    matches = list(_SECTION_HEADER_RE.finditer(body))
+
+    if len(matches) < 2:
+        return _chunk_text(body, chunk_size, overlap)
+
+    boundaries = [m.start() for m in matches] + [len(body)]
+    chunks: list[str] = []
+
+    preamble = body[:boundaries[0]].strip()
+    if preamble:
+        chunks.extend(_chunk_text(preamble, chunk_size, overlap))
+
+    for i, match in enumerate(matches):
+        section = body[boundaries[i]:boundaries[i + 1]].strip()
+        if not section:
+            continue
+        if len(section) <= chunk_size:
+            chunks.append(section)
+        else:
+            chunks.extend(_chunk_text(section, chunk_size, overlap))
+
+    return chunks
+
+
 # ── pgvector init ─────────────────────────────────────────────────────────────
 
 def init_pgvector(engine) -> None:
@@ -133,7 +172,7 @@ def ingest_pdf(
     doc_title: str,
     pdf_bytes: bytes,
 ) -> int:
-    """Parse PDF, chunk by page, embed, and store. Returns total chunks stored."""
+    """Parse PDF, chunk across full document, embed, and store. Returns total chunks stored."""
     from pypdf import PdfReader
 
     doc_id = hashlib.sha256(pdf_bytes).hexdigest()[:16]
@@ -146,27 +185,31 @@ def ingest_pdf(
     session.commit()
 
     reader = PdfReader(io.BytesIO(pdf_bytes))
-    total = 0
-    global_chunk_index = 0
 
-    for page_num, page in enumerate(reader.pages):
-        page_text = page.extract_text() or ""
-        if not page_text.strip():
-            continue
-        for chunk in _chunk_text(page_text):
-            embedding = _embed(chunk)
-            session.add(KnowledgeChunk(
-                user_id=user_id,
-                source_type=source_type,
-                doc_title=doc_title,
-                doc_id=doc_id,
-                page_number=page_num + 1,
-                chunk_index=global_chunk_index,
-                chunk_text=chunk,
-                embedding=embedding,
-            ))
-            global_chunk_index += 1
-            total += 1
+    # Concatenate all pages before chunking so paragraph boundaries are preserved
+    # across page breaks rather than forcing a chunk split at every page end.
+    full_text = "\n".join(
+        (page.extract_text() or "").strip()
+        for page in reader.pages
+    ).strip()
+
+    if not full_text:
+        return 0
+
+    total = 0
+    for chunk_index, chunk in enumerate(_chunk_structured(full_text)):
+        embedding = _embed(chunk)
+        session.add(KnowledgeChunk(
+            user_id=user_id,
+            source_type=source_type,
+            doc_title=doc_title,
+            doc_id=doc_id,
+            page_number=0,
+            chunk_index=chunk_index,
+            chunk_text=chunk,
+            embedding=embedding,
+        ))
+        total += 1
 
     session.commit()
     return total

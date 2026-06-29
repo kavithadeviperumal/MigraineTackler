@@ -1,21 +1,36 @@
-import json
-import re
+import logging
 from datetime import date, timedelta
 
+from pydantic import ValidationError
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from sqlmodel import Session
 
 from app.graph.state import MigraineState
 from app.database import engine
 from app.services.log_service import list_recent
 from app.config import settings
+from app.graph.nodes.schemas import PatternOutput
 
 _llm = ChatOpenAI(
     model="gpt-4o-mini",
     api_key=settings.openai_api_key,
     max_tokens=2048,
+    temperature=0,
 )
+_structured_llm = _llm.with_structured_output(PatternOutput)
+_logger = logging.getLogger(__name__)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=8),
+    retry=retry_if_not_exception_type(ValidationError),
+    reraise=True,
+)
+def _invoke(messages: list):
+    return _structured_llm.invoke(messages)
 
 SYSTEM_PROMPT = """\
 You are the Pattern Agent for MigraineTackler. You receive a structured history of migraine \
@@ -47,34 +62,15 @@ You surface patterns from the data.
    - Suspected trigger: appears before 40–69% of migraine days
    - Weak signal: below 40% — omit from lists
 
-## Output Format
-
-Respond with exactly two sections:
-
-### PATTERN SUMMARY
-2–4 sentences, conversational and clinical. Lead with the most actionable finding. \
-If there is insufficient data (fewer than 4 entries), say so clearly.
-
-### STRUCTURED DATA
-```json
-{
-  "confirmed_triggers": ["..."],
-  "suspected_triggers": ["..."],
-  "unknown_trigger_candidates": ["..."],
-  "key_insight": "one sentence — the single most important finding",
-  "trend": "improving | worsening | stable"
-}
-```
-
-Rules:
+## Rules
 - Only list triggers backed by at least 2 occurrences in the data
 - Be specific ("sleep < 6 hours" not just "poor sleep")
 - Return empty lists if data is insufficient — do not guess
 - unknown_trigger_candidates: only items from novel_exposures fields that appear on ≥2 migraine
   days — never guess or include standard trigger list items here
-- If there are ZERO migraine days in the window: write only one sentence stating there are no
-  migraine days to analyze, and return empty lists for all trigger categories. Do NOT speculate
-  about what might become a trigger. Do NOT comment on stress or sleep as potential future risks.
+- If there are ZERO migraine days in the window: set pattern_summary to one sentence stating
+  there are no migraine days to analyze, and return empty lists for all trigger fields.
+  Do NOT speculate about what might become a trigger.
 """
 
 
@@ -136,21 +132,6 @@ def _format_entries(entries: list) -> str:
     return "\n".join(lines)
 
 
-def _parse_structured(text: str) -> dict:
-    match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-    if not match:
-        return {}
-    try:
-        return json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return {}
-
-
-def _parse_summary(text: str) -> str:
-    match = re.search(r"### PATTERN SUMMARY\s*(.*?)(?=###|\Z)", text, re.DOTALL)
-    return match.group(1).strip() if match else text
-
-
 def run(state: MigraineState) -> dict:
     since = date.today() - timedelta(days=60)
 
@@ -159,25 +140,28 @@ def run(state: MigraineState) -> dict:
 
     context = _format_entries(entries)
 
-    response = _llm.invoke([
-        SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=context),
-    ])
-
-    text = response.content
-    structured = _parse_structured(text)
+    try:
+        result: PatternOutput = _invoke([
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=context),
+        ])
+    except Exception as exc:
+        _logger.warning("pattern: LLM invoke failed: %s", exc)
+        return {
+            "current_agent": "pattern",
+            "messages": [AIMessage(content="Pattern analysis failed — AI service error. Please try again in a moment.")],
+        }
 
     updates: dict = {
         "current_agent": "pattern",
-        "messages": [response],
-        "session_history_summary": _parse_summary(text),
+        "session_history_summary": result.pattern_summary,
     }
 
-    if structured.get("confirmed_triggers"):
-        updates["confirmed_triggers"] = structured["confirmed_triggers"]
-    if structured.get("suspected_triggers"):
-        updates["suspected_triggers"] = structured["suspected_triggers"]
-    if structured.get("unknown_trigger_candidates"):
-        updates["unknown_trigger_candidates"] = structured["unknown_trigger_candidates"]
+    if result.confirmed_triggers:
+        updates["confirmed_triggers"] = result.confirmed_triggers
+    if result.suspected_triggers:
+        updates["suspected_triggers"] = result.suspected_triggers
+    if result.unknown_trigger_candidates:
+        updates["unknown_trigger_candidates"] = result.unknown_trigger_candidates
 
     return updates

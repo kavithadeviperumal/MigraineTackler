@@ -1,4 +1,6 @@
+import logging
 import threading
+import time
 import psycopg
 from sqlalchemy.engine import make_url
 from langgraph.graph import StateGraph, END
@@ -135,6 +137,7 @@ def compile_graph():
 # Lazy singleton — thread-safe; warmup thread and request handler may race on first call.
 _graph = None
 _graph_lock = threading.Lock()
+_logger = logging.getLogger(__name__)
 
 
 def get_graph():
@@ -142,5 +145,16 @@ def get_graph():
     if _graph is None:
         with _graph_lock:
             if _graph is None:
-                _graph = compile_graph()
+                _logger.info("graph_compile_start")
+                t = time.monotonic()
+                try:
+                    _graph = compile_graph()
+                    _logger.info("graph_compile_success", extra={"duration_ms": round((time.monotonic() - t) * 1000)})
+                except Exception:
+                    _logger.exception("graph_compile_failed", extra={"duration_ms": round((time.monotonic() - t) * 1000)})
+                    raise
     return _graph
+
+
+def is_graph_ready() -> bool:
+    return _graph is not None

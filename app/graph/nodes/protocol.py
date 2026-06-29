@@ -1,18 +1,35 @@
 import json
-import re
+import logging
 from datetime import date
 
+from pydantic import ValidationError
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from app.graph.state import MigraineState, Protocol, ProtocolItem
 from app.config import settings
+from app.graph.nodes.schemas import ProtocolOutput
 
 _llm = ChatOpenAI(
     model="gpt-4o-mini",
     api_key=settings.openai_api_key,
     max_tokens=3000,
+    temperature=0,
 )
+_structured_llm = _llm.with_structured_output(ProtocolOutput)
+_logger = logging.getLogger(__name__)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=8),
+    retry=retry_if_not_exception_type(ValidationError),
+    reraise=True,
+)
+def _invoke(messages: list):
+    return _structured_llm.invoke(messages)
+
 
 SYSTEM_PROMPT = """\
 You are the Protocol Agent for MigraineTackler. You receive a user's root cause hypothesis, \
@@ -39,38 +56,13 @@ Always recommend professional medical consultation for medication changes.
 - active_items: interventions to start now (max 4–5 to avoid overwhelm)
 - on_deck: interventions to consider if active_items don't produce results in 8 weeks
 
-## Output Format
-
-### PROTOCOL SUMMARY
-3–5 sentences. Explain the overall strategy — what you're targeting and why, \
-in plain language the user can act on today.
-
-### STRUCTURED DATA
-```json
-{
-  "active_tier": 1,
-  "active_items": [
-    {
-      "intervention": "...",
-      "tier": 1,
-      "dose_or_detail": "...",
-      "rationale": "...",
-      "what_to_log": "...",
-      "assessment_weeks": 4
-    }
-  ],
-  "on_deck": [
-    {
-      "intervention": "...",
-      "tier": 2,
-      "dose_or_detail": "...",
-      "rationale": "...",
-      "what_to_log": "...",
-      "assessment_weeks": 6
-    }
-  ]
-}
-```
+## Output
+- protocol_summary: 3-5 sentences explaining the overall strategy — what you're targeting
+  and why, in plain language the user can act on today
+- active_tier: the highest tier currently active (1-4)
+- active_items: list of interventions to start now, each with intervention, tier, dose_or_detail,
+  rationale, what_to_log, assessment_weeks
+- on_deck: same structure, for future consideration
 """
 
 
@@ -105,37 +97,32 @@ def _build_context(state: MigraineState) -> str:
     return "\n".join(lines)
 
 
-def _parse_structured(text: str) -> dict:
-    match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-    if not match:
-        return {}
-    try:
-        return json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return {}
-
-
 def run(state: MigraineState) -> dict:
     context = _build_context(state)
-
-    response = _llm.invoke([
-        SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=context),
-    ])
-
-    text = response.content
-    structured = _parse_structured(text)
 
     existing = state.get("current_protocol", {})
     prior_version = existing.get("version", 0)
 
     try:
-        active_items = [ProtocolItem(**item) for item in structured.get("active_items", [])]
-        on_deck = [ProtocolItem(**item) for item in structured.get("on_deck", [])]
+        result: ProtocolOutput = _invoke([
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=context),
+        ])
+    except Exception as exc:
+        _logger.warning("protocol: LLM invoke failed: %s", exc)
+        return {
+            "current_agent": "protocol",
+            "current_protocol": existing,
+            "messages": [AIMessage(content="Protocol generation failed — AI service error. Your existing plan remains active.")],
+        }
+
+    try:
+        active_items = [ProtocolItem(**item.model_dump()) for item in result.active_items]
+        on_deck = [ProtocolItem(**item.model_dump()) for item in result.on_deck]
         protocol = Protocol(
             version=prior_version + 1,
             date=str(date.today()),
-            active_tier=structured.get("active_tier", 1),
+            active_tier=result.active_tier,
             active_items=active_items,
             on_deck=on_deck,
         )
@@ -145,7 +132,6 @@ def run(state: MigraineState) -> dict:
 
     return {
         "current_agent": "protocol",
-        "messages": [response],
         "current_protocol": serialized_protocol,
         "protocol_version": prior_version + 1,
     }
