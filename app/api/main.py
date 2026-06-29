@@ -1,6 +1,6 @@
 import threading
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Response
 from sqlmodel import Session, delete
 
 from app.database import create_db_and_tables, engine, get_session_dep
@@ -8,6 +8,8 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.log_entry import LogEntry
 from app.api.routes import logs, analyze, auth, profile, shortcut, knowledge
+from app.mcp_server.server import mcp
+from app.mcp_server.auth_middleware import MCPAuthMiddleware
 
 
 @asynccontextmanager
@@ -34,6 +36,17 @@ app.include_router(logs.router,    prefix="/logs",    tags=["logs"])
 app.include_router(analyze.router,   prefix="/analyze",   tags=["analyze"])
 app.include_router(shortcut.router,   prefix="/shortcut",   tags=["shortcut"])
 app.include_router(knowledge.router,  prefix="/knowledge",  tags=["knowledge"])
+
+app.mount("/mcp", MCPAuthMiddleware(mcp.streamable_http_app()))
+
+
+@app.get("/health/ready", tags=["ops"], include_in_schema=False)
+def health_ready(response: Response):
+    from app.graph.graph import is_graph_ready
+    if not is_graph_ready():
+        response.status_code = 503
+        return {"status": "not_ready", "reason": "graph compiling"}
+    return {"status": "ready"}
 
 
 @app.post("/reset", tags=["dev"])

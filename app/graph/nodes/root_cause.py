@@ -1,20 +1,37 @@
-import json
-import re
+import logging
 
+from pydantic import ValidationError
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from sqlmodel import Session
 
 from app.graph.state import MigraineState
 from app.config import settings
 from app.database import engine
 from app.services.rag_service import retrieve_relevant
+from app.graph.nodes.schemas import RootCauseOutput
+
+_logger = logging.getLogger(__name__)
 
 _llm = ChatOpenAI(
     model="gpt-4o-mini",
     api_key=settings.openai_api_key,
     max_tokens=2048,
+    temperature=0,
 )
+_structured_llm = _llm.with_structured_output(RootCauseOutput)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=8),
+    retry=retry_if_not_exception_type(ValidationError),
+    reraise=True,
+)
+def _invoke(messages: list):
+    return _structured_llm.invoke(messages)
+
 
 SYSTEM_PROMPT = """\
 You are the Root Cause Agent for MigraineTackler. You receive a synthesis of a user's migraine \
@@ -46,30 +63,15 @@ If the data is insufficient, say so explicitly rather than filling gaps with ass
 - Do the stats (frequency, trend, triptan use) suggest MOH risk?
 - Is the pattern improving or worsening — and why?
 
-## Output Format
-
-### ROOT CAUSE SUMMARY
-3–5 sentences. Explain the hypothesis and the reasoning behind it in plain language. \
-Be specific — name the mechanism, not just the trigger. \
-If data is insufficient for a confident hypothesis, say so and describe what's still needed.
-
-### STRUCTURED DATA
-```json
-{
-  "hypothesis": "one clear sentence stating the most likely root cause",
-  "migraine_subtype": "one of the subtypes above",
-  "confidence": "low | medium | high",
-  "reasoning": "2–3 sentences explaining what data supports this hypothesis",
-  "evidence": [
-    {
-      "claim": "specific claim this evidence supports",
-      "source": "exact reference in the data (e.g. '6 of 8 migraine days', 'pattern summary', '30-day stats')",
-      "source_type": "log_history | onboarding | weather | agent_memory | stats"
-    }
-  ],
-  "what_to_watch": ["next data point or pattern to confirm or rule out this hypothesis"]
-}
-```
+## Output
+- root_cause_summary: 3-5 sentences explaining the hypothesis and reasoning in plain language.
+  Name the mechanism, not just the trigger. If data is insufficient, say so explicitly.
+- hypothesis: one clear sentence stating the most likely root cause
+- migraine_subtype: exactly one of the subtypes listed above
+- confidence: low | medium | high
+- reasoning: 2-3 sentences explaining what data supports this hypothesis
+- evidence: each item must cite a specific source in the data provided (e.g. '6 of 8 migraine days', '30-day stats')
+- what_to_watch: next data points or patterns to confirm or rule out this hypothesis
 """
 
 
@@ -125,19 +127,19 @@ def _build_context(state: MigraineState, kb_passages: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _parse_structured(text: str) -> dict:
-    match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-    if not match:
-        return {}
-    try:
-        return json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return {}
+def _validate_grounding(result: RootCauseOutput) -> RootCauseOutput:
+    if result.hypothesis and not result.evidence:
+        _logger.warning("root_cause: hypothesis set but evidence list is empty — downgrading confidence to low")
+        return result.model_copy(update={"confidence": "low"})
+    if result.confidence == "high" and len(result.evidence) < 2:
+        _logger.warning("root_cause: high confidence with fewer than 2 evidence items — downgrading to medium")
+        return result.model_copy(update={"confidence": "medium"})
+    return result
 
 
 def run(state: MigraineState) -> dict:
-    # Retrieve KB passages relevant to the current trigger profile
     kb_passages: list[dict] = []
+    kb_failed = False
     user_id = state.get("user_id")
     if user_id:
         confirmed = state.get("confirmed_triggers", [])
@@ -147,33 +149,42 @@ def run(state: MigraineState) -> dict:
             try:
                 with Session(engine) as session:
                     kb_passages = retrieve_relevant(session, user_id, query, top_k=6)
-            except Exception:
+            except Exception as exc:
+                _logger.warning("root_cause: KB retrieval failed for user %s: %s", user_id, exc)
+                kb_failed = True
                 kb_passages = []
 
     context = _build_context(state, kb_passages)
 
-    response = _llm.invoke([
-        SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=context),
-    ])
+    try:
+        result: RootCauseOutput = _invoke([
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=context),
+        ])
+    except Exception as exc:
+        return {
+            "current_agent": "root_cause",
+            "messages": [AIMessage(content=f"Root cause analysis failed — AI service error: {exc}. Your data has been saved; try again in a moment.")],
+        }
 
-    text = response.content
-    structured = _parse_structured(text)
+    result = _validate_grounding(result)
 
     confirmed = set(state.get("confirmed_triggers", []))
     suspected = set(state.get("suspected_triggers", []))
 
     updates: dict = {
         "current_agent": "root_cause",
-        "messages": [response],
         "root_cause_triggers_seen": list(confirmed | suspected),
     }
 
-    if structured.get("hypothesis"):
-        updates["current_root_cause_hypothesis"] = structured["hypothesis"]
-    if structured.get("migraine_subtype"):
-        updates["migraine_subtype"] = structured["migraine_subtype"]
-    if isinstance(structured.get("evidence"), list):
-        updates["root_cause_evidence"] = structured["evidence"]
+    if result.hypothesis:
+        updates["current_root_cause_hypothesis"] = result.hypothesis
+    if result.migraine_subtype:
+        updates["migraine_subtype"] = result.migraine_subtype
+    if result.evidence:
+        updates["root_cause_evidence"] = [e.model_dump() for e in result.evidence]
+
+    if kb_failed:
+        updates["messages"] = [AIMessage(content="Note: your personal documents were temporarily unavailable.")]
 
     return updates

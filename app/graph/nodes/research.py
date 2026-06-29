@@ -1,6 +1,8 @@
-import json
-import re
+import logging
+
 import httpx
+from pydantic import ValidationError
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 import xml.etree.ElementTree as ET
 from datetime import date
 
@@ -12,12 +14,28 @@ from app.graph.state import MigraineState
 from app.config import settings
 from app.database import engine
 from app.services.rag_service import retrieve_relevant, store_research_chunk
+from app.graph.nodes.schemas import ResearchOutput
+
+_logger = logging.getLogger(__name__)
 
 _llm = ChatOpenAI(
     model="gpt-4o-mini",
     api_key=settings.openai_api_key,
     max_tokens=2048,
+    temperature=0,
 )
+_structured_llm = _llm.with_structured_output(ResearchOutput)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=8),
+    retry=retry_if_not_exception_type(ValidationError),
+    reraise=True,
+)
+def _invoke(messages: list):
+    return _structured_llm.invoke(messages)
+
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
 _PUBMED_ESEARCH   = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
@@ -47,23 +65,15 @@ which may include clinical guidelines, Ayurvedic texts, and doctor notes.
 5. PRACTICAL TAKEAWAY — one concrete thing the user can do or log
 6. MEDICAL CONSULTATION — flag anything requiring a doctor's involvement
 
-## Output Format
-
-### RESEARCH FINDINGS
-Your synthesized answer — 3–6 sentences. Cite inline as [1], [KB-1], etc.
-
-### STRUCTURED DATA
-```json
-{
-  "topic": "short topic label (3-5 words)",
-  "key_finding": "one sentence summary of the most important finding",
-  "evidence_quality": "well-established | emerging | anecdotal",
-  "medical_framework": "name of the relevant clinical framework or pathway, if any",
-  "action": "one concrete thing to log or try",
-  "cited_indices": [1, 2],
-  "cited_kb_indices": [1]
-}
-```
+## Output
+- research_findings: 3-6 sentence synthesized answer with inline citations as [1], [KB-1], etc.
+- topic: short topic label, 3-5 words
+- key_finding: one sentence summary of the most important finding
+- evidence_quality: well-established | emerging | anecdotal
+- medical_framework: name of the relevant clinical framework or pathway, if any
+- action: one concrete thing the user can log or try
+- cited_indices: 1-based indices of the live papers cited
+- cited_kb_indices: 1-based indices of the KB passages cited
 """
 
 
@@ -307,16 +317,6 @@ def _extract_question(state: MigraineState) -> tuple[str, bool]:
     return "", False
 
 
-def _parse_structured(text: str) -> dict:
-    match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
-    if not match:
-        return {}
-    try:
-        return json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return {}
-
-
 def _format_references_block(papers: list[dict], cited_indices: list[int]) -> str:
     cited = [papers[i - 1] for i in cited_indices if 1 <= i <= len(papers)]
     if not cited:
@@ -328,6 +328,26 @@ def _format_references_block(papers: list[dict], cited_indices: list[int]) -> st
         link    = f" [[{p['source']}]]({url})" if url else f" [{p['source']}]"
         lines.append(f"[{i}] {authors} ({p['year']}). *{p['title']}*. {p['journal']}.{link}")
     return "\n".join(lines)
+
+
+# ── Post-hoc validation ───────────────────────────────────────────────────────
+
+def _validate_citations(
+    result: ResearchOutput,
+    papers: list[dict],
+    kb_passages: list[dict],
+) -> tuple[ResearchOutput, bool]:
+    valid_paper = [i for i in result.cited_indices if 1 <= i <= len(papers)]
+    valid_kb    = [i for i in result.cited_kb_indices if 1 <= i <= len(kb_passages)]
+    stripped    = len(valid_paper) != len(result.cited_indices) or len(valid_kb) != len(result.cited_kb_indices)
+    if stripped:
+        _logger.warning(
+            "research: out-of-bounds citations stripped — %s invalid paper indices, %s invalid kb indices",
+            [i for i in result.cited_indices if not (1 <= i <= len(papers))],
+            [i for i in result.cited_kb_indices if not (1 <= i <= len(kb_passages))],
+        )
+        result = result.model_copy(update={"cited_indices": valid_paper, "cited_kb_indices": valid_kb})
+    return result, stripped
 
 
 # ── Node entry point ──────────────────────────────────────────────────────────
@@ -345,11 +365,14 @@ def run(state: MigraineState) -> dict:
     # 1. Retrieve from personal knowledge base (clinical guidelines, Ayurvedic, doctor notes,
     #    and previously cached PubMed abstracts) before hitting live APIs.
     kb_passages: list[dict] = []
+    kb_failed = False
     if user_id:
         try:
             with Session(engine) as session:
                 kb_passages = retrieve_relevant(session, user_id, question, top_k=8)
-        except Exception:
+        except Exception as exc:
+            _logger.warning("research: KB retrieval failed for user %s: %s", user_id, exc)
+            kb_failed = True
             kb_passages = []
 
     # 2. Fetch live papers from PubMed + Semantic Scholar.
@@ -364,7 +387,7 @@ def run(state: MigraineState) -> dict:
     context = _build_context(papers, kb_passages, question, state)
 
     try:
-        response = _llm.invoke([
+        result: ResearchOutput = _invoke([
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(content=context),
         ])
@@ -374,28 +397,30 @@ def run(state: MigraineState) -> dict:
             "messages": [AIMessage(content=f"Research synthesis failed — AI service error: {exc}.")],
         }
 
-    text       = response.content
-    structured = _parse_structured(text)
+    result, citations_stripped = _validate_citations(result, papers, kb_passages)
 
-    cited_indices    = structured.get("cited_indices", [])
-    references_block = _format_references_block(papers, cited_indices)
-    final_content    = text + references_block if references_block else text
+    references_block = _format_references_block(papers, result.cited_indices)
+    final_content    = result.research_findings + references_block if references_block else result.research_findings
+    if kb_failed:
+        final_content += "\n\n_Note: your personal documents were temporarily unavailable._"
+    if citations_stripped:
+        final_content += "\n\n_Note: some citations were removed — they referenced sources not retrieved in this session._"
 
     updates: dict = {
         "current_agent": "research",
         "messages": [AIMessage(content=final_content)],
     }
 
-    if structured.get("key_finding") and structured.get("topic"):
-        n_live  = len(cited_indices)
-        n_kb    = len(structured.get("cited_kb_indices", []))
+    if result.key_finding and result.topic:
+        n_live  = len(result.cited_indices)
+        n_kb    = len(result.cited_kb_indices)
         suffix  = f" ({n_live} live papers; {n_kb} KB passages)"
         updates["research_findings"] = [
-            f"[{date.today()}] {structured['topic']}: {structured['key_finding']}{suffix}"
+            f"[{date.today()}] {result.topic}: {result.key_finding}{suffix}"
         ]
 
-    if structured.get("medical_framework"):
-        updates["medical_frameworks_applied"] = [structured["medical_framework"]]
+    if result.medical_framework:
+        updates["medical_frameworks_applied"] = [result.medical_framework]
 
     if is_auto:
         updates["research_triggers_seen"] = list(state.get("confirmed_triggers", []))
@@ -414,7 +439,7 @@ def run(state: MigraineState) -> dict:
                             doc_id=paper["pmid"],
                             text_body=paper["abstract"],
                         )
-        except Exception:
-            pass  # caching failure is non-fatal
+        except Exception as exc:
+            _logger.warning("research: abstract cache write failed for user %s: %s", user_id, exc)
 
     return updates

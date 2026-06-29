@@ -1,5 +1,5 @@
 import operator
-from typing import Annotated, Optional
+from typing import Annotated, Optional, TypedDict
 from langgraph.graph import add_messages
 from pydantic import BaseModel, Field
 
@@ -48,16 +48,19 @@ class Protocol(BaseModel):
 # Annotated[list, add_messages] → LangGraph manages message deduplication
 # Plain fields           → LangGraph replaces on each update
 
-class MigraineState(dict):
+class MigraineState(TypedDict, total=False):
     """
     LangGraph state for MigraineTackler.
 
-    Two SQLite databases:
-      data/migraine.db    — LogEntry health records (SQLModel)
-      data/langgraph.db   — This state, persisted via SqliteSaver checkpoints
+    Two databases:
+      migraine.db (SQLite/SQLModel) — LogEntry health records
+      PostgreSQL (PostgresSaver)    — This state, persisted via LangGraph checkpoints
 
     Keeping them separate avoids schema conflicts and makes it easy to wipe
     agent memory without touching health records, or vice versa.
+
+    total=False: LangGraph state updates are always partial dicts — nodes return
+    only the keys they touch, so no key is ever "required" on every update.
     """
 
     # ── Routing ──────────────────────────────────────────────────────────────

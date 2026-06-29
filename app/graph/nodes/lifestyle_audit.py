@@ -14,6 +14,7 @@ _llm = ChatOpenAI(
     model="gpt-4o-mini",
     api_key=settings.openai_api_key,
     max_tokens=2500,
+    temperature=0,
 )
 
 SYSTEM_PROMPT = """\

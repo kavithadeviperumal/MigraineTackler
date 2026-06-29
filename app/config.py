@@ -51,7 +51,11 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Inject into os.environ so the Google GenAI SDK can find the key
+# Inject into os.environ so SDKs that read env directly can find the keys
 import os as _os
 if settings.google_api_key:
     _os.environ["GOOGLE_API_KEY"] = settings.google_api_key
+if settings.langchain_api_key:
+    _os.environ["LANGCHAIN_API_KEY"]      = settings.langchain_api_key
+    _os.environ["LANGCHAIN_TRACING_V2"]   = "true" if settings.langchain_tracing_v2 else "false"
+    _os.environ["LANGCHAIN_PROJECT"]      = settings.langchain_project
