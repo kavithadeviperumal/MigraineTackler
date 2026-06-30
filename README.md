@@ -14,6 +14,30 @@ tailored to your history.
 
 ---
 
+## 🎯 Quick Overview
+
+| Feature | Benefit |
+|---------|---------|
+| **Multi-Agent AI System** | FastAPI + LangGraph orchestration with 6 specialized agents |
+| **Pattern Detection** | Identifies triggers, lag effects, and cumulative threshold patterns |
+| **Root Cause Analysis** | 3-layer causal reasoning: proximal triggers → physiological vulnerabilities → upstream root causes |
+| **Research Synthesis** | Real abstracts from PubMed + Semantic Scholar with tiered confidence scoring |
+| **Personalized Protocols** | 5-tier intervention recommendations based on your specific data |
+| **Safety-First** | Deterministic alerts for medication overuse (MOH) and red flag symptoms — never delegated to LLM |
+| **Multi-Framework** | Analyzes patterns through Western medicine, functional medicine, TCM, and Ayurveda lenses |
+
+---
+
+## Why MigraineTackler?
+
+**The Problem:** 1 in 4 people experience migraines. Existing apps are glorified symptom diaries—they log *what* happened, not *why*.
+
+**The Reality:** Migraines are multifactorial. They strike when cumulative triggers cross your personal threshold. That chocolate craving before a migraine? Often a prodrome (early symptom), not the trigger itself. Most apps miss this completely.
+
+**The Solution:** MigraineTackler reasons about your data across medical frameworks, distinguishes causation from correlation, and generates actionable hypotheses tailored to *your* migraine pattern.
+
+---
+
 ## The Problem with Existing Migraine Apps
 
 Most migraine apps are glorified diaries. They record what happened. 
@@ -217,6 +241,32 @@ streamlit run streamlit_app.py
 
 ---
 
+## Contributing
+
+Contributions are welcome! Areas where we'd love help:
+
+- RAG integration for TCM and Ayurvedic literature
+- Mobile frontend development (React Native)
+- Clinical validation and feedback
+- Documentation improvements
+
+Please open an issue or PR to discuss!
+
+---
+
 ## License
 
 MIT
+
+---
+
+## Support the Project
+
+If MigraineTackler is helpful to you:
+
+- ⭐ **Star this repository** — it helps others discover the project
+- 🐛 **Report bugs and suggest features** — [Open an issue](https://github.com/kavithadeviperumal/MigraineTackler/issues)
+- 🤝 **Contribute** — fork, improve, and submit a PR
+- 💬 **Share feedback** — let me know how it's working for you
+
+Built for people tired of apps that just log symptoms. Built for answers.
