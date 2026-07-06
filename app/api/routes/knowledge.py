@@ -39,6 +39,7 @@ async def upload_knowledge(
     if not pdf_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
+    assert current_user.id is not None
     chunks_stored = ingest_pdf(session, current_user.id, source_type, title.strip(), pdf_bytes)
     return {
         "status": "ok",
@@ -54,6 +55,7 @@ def get_sources(
     session: Session = Depends(get_session_dep),
 ):
     """List all documents in the user's knowledge base."""
+    assert current_user.id is not None
     return list_sources(session, current_user.id)
 
 
@@ -64,6 +66,7 @@ def remove_source(
     session: Session = Depends(get_session_dep),
 ):
     """Remove a document and all its chunks from the knowledge base."""
+    assert current_user.id is not None
     deleted = delete_source(session, current_user.id, doc_id)
     if deleted == 0:
         raise HTTPException(status_code=404, detail="Document not found.")

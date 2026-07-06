@@ -1,11 +1,11 @@
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
 from sqlmodel import Session
 
-from app.graph.state import MigraineState
-from app.database import engine
-from app.models.log_entry import LogEntry
 from app.config import settings
+from app.database import engine
+from app.graph.state import MigraineState
+from app.models.log_entry import LogEntry
 
 _llm = ChatOpenAI(
     model="gpt-4o-mini",
@@ -83,7 +83,8 @@ def _list_or(v: list | None, fallback: str = "none logged") -> str:
 
 
 def _build_log_context(entry: LogEntry, stats: dict, state: MigraineState) -> str:
-    yn = lambda v: "Yes" if v else "No"
+    def yn(v) -> str:
+        return "Yes" if v else "No"
 
     lines = [
         f"=== LOG ENTRY: {entry.entry_date} ===",
@@ -126,8 +127,11 @@ def _build_log_context(entry: LogEntry, stats: dict, state: MigraineState) -> st
         f"SCREEN:      {_opt(entry.screen_hours, ' hrs')}",
         f"NECK:        {_opt(entry.neck_tension, '/10')}",
         *(
-            [f"HORMONAL:    cycle day {_opt(entry.menstrual_cycle_day)}, {_opt(entry.hormonal_notes)}"]
-            if entry.migraine_occurred else []
+            [
+                f"HORMONAL:    cycle day {_opt(entry.menstrual_cycle_day)}, {_opt(entry.hormonal_notes)}"
+            ]
+            if entry.migraine_occurred
+            else []
         ),
         f"GUT:         Bristol {_opt(entry.bowel_quality)}"
         f", bloating: {yn(entry.bloating) if entry.bloating is not None else 'not logged'}",
@@ -203,7 +207,7 @@ def run(state: MigraineState) -> dict:
         ]
     else:
         # Subsequent turn — user has responded to the follow-up questions
-        input_messages = [SystemMessage(content=SYSTEM_PROMPT)] + prior_messages
+        input_messages = [SystemMessage(content=SYSTEM_PROMPT), *prior_messages]
 
     response = _llm.invoke(input_messages)
 

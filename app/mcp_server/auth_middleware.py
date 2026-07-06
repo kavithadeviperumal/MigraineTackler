@@ -7,6 +7,7 @@ or invalid token it returns 401 without touching the inner app.
 """
 
 import json
+
 import jwt
 from starlette.requests import Request
 
@@ -29,7 +30,7 @@ class MCPAuthMiddleware:
             await _send_401(scope, send, "Not authenticated")
             return
 
-        token = auth[len("Bearer "):]
+        token = auth[len("Bearer ") :]
         try:
             user_id = decode_user_id(token)
         except jwt.ExpiredSignatureError:
@@ -48,12 +49,14 @@ class MCPAuthMiddleware:
 
 async def _send_401(scope, send, detail: str) -> None:
     body = json.dumps({"detail": detail}).encode()
-    await send({
-        "type": "http.response.start",
-        "status": 401,
-        "headers": [
-            (b"content-type", b"application/json"),
-            (b"content-length", str(len(body)).encode()),
-        ],
-    })
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 401,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+        }
+    )
     await send({"type": "http.response.body", "body": body})

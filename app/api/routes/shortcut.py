@@ -57,7 +57,8 @@ STEP 2 — Log entry  (POST /shortcut/log)
   Add a "Speak Text" action using the "spoken" field — Siri reads it aloud.
 """
 
-from datetime import date as date_type, datetime, timedelta
+from datetime import date as date_type
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from pydantic import BaseModel
@@ -75,6 +76,7 @@ router = APIRouter()
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
+
 def _verify_key(x_shortcuts_key: str = Header(...)):
     if not settings.shortcuts_api_key:
         raise HTTPException(
@@ -82,10 +84,13 @@ def _verify_key(x_shortcuts_key: str = Header(...)):
             detail="Shortcuts integration is not configured on this server.",
         )
     if x_shortcuts_key != settings.shortcuts_api_key:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Shortcuts key.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Shortcuts key."
+        )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _sleep_hours(bedtime: str, wake_time: str) -> float | None:
     try:
@@ -112,44 +117,47 @@ def _lookup_profile(session: Session, user_id: int) -> UserProfile | None:
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
+
 class ShortcutContextResponse(BaseModel):
-    typical_sleep_hours:  float | None
-    typical_stress_level: int   | None
+    typical_sleep_hours: float | None
+    typical_stress_level: int | None
     typical_hydration_oz: float | None
-    typical_caffeine:     str   | None
+    typical_caffeine: str | None
 
 
 class ShortcutLogRequest(BaseModel):
-    username:     str
-    migraine:     bool
+    username: str
+    migraine: bool
     # Migraine-day fields
-    pain_level:   int   = 5
-    medication:   str   = ""
-    notes:        str   = ""
+    pain_level: int = 5
+    medication: str = ""
+    notes: str = ""
     # Migraine-free day fields (captured via conditional questions in Shortcuts)
-    sleep_hours:  float | None = None
-    sleep_quality: int  | None = None
-    stress_level: int   | None = None
+    sleep_hours: float | None = None
+    sleep_quality: int | None = None
+    stress_level: int | None = None
     hydration_oz: float | None = None
 
 
 class ShortcutLogResponse(BaseModel):
-    spoken:      str
-    red_flag:    bool
-    moh_alert:   bool
+    spoken: str
+    red_flag: bool
+    moh_alert: bool
     moh_warning: str | None = None
 
 
 # ── GET /shortcut/context ─────────────────────────────────────────────────────
 
+
 @router.get("/context", response_model=ShortcutContextResponse)
 def shortcut_context(
     username: str,
-    session:  Session = Depends(get_session_dep),
-    _:        None    = Depends(_verify_key),
+    session: Session = Depends(get_session_dep),
+    _: None = Depends(_verify_key),
 ):
     """Return the user's profile baseline so Shortcuts can ask relative questions."""
-    user    = _lookup_user(session, username)
+    user = _lookup_user(session, username)
+    assert user.id is not None
     profile = _lookup_profile(session, user.id)
 
     if not profile:
@@ -160,8 +168,11 @@ def shortcut_context(
             typical_caffeine=None,
         )
 
-    sleep = _sleep_hours(profile.typical_bedtime, profile.typical_wake_time) \
-        if profile.typical_bedtime and profile.typical_wake_time else None
+    sleep = (
+        _sleep_hours(profile.typical_bedtime, profile.typical_wake_time)
+        if profile.typical_bedtime and profile.typical_wake_time
+        else None
+    )
 
     return ShortcutContextResponse(
         typical_sleep_hours=sleep,
@@ -173,18 +184,19 @@ def shortcut_context(
 
 # ── POST /shortcut/log ────────────────────────────────────────────────────────
 
+
 @router.post("/log", response_model=ShortcutLogResponse)
 def shortcut_log(
-    body:             ShortcutLogRequest,
+    body: ShortcutLogRequest,
     background_tasks: BackgroundTasks,
-    session:          Session = Depends(get_session_dep),
-    _:                None    = Depends(_verify_key),
+    session: Session = Depends(get_session_dep),
+    _: None = Depends(_verify_key),
 ):
     user = _lookup_user(session, body.username)
 
     payload: dict = {
-        "user_id":           user.id,
-        "entry_date":        date_type.today(),
+        "user_id": user.id,
+        "entry_date": date_type.today(),
         "migraine_occurred": body.migraine,
     }
 
@@ -196,10 +208,14 @@ def shortcut_log(
             payload["notes"] = body.notes.strip()
     else:
         # Non-migraine: include whatever baseline deviation was captured
-        if body.sleep_hours  is not None: payload["sleep_hours"]   = body.sleep_hours
-        if body.sleep_quality is not None: payload["sleep_quality"] = body.sleep_quality
-        if body.stress_level is not None: payload["stress_level"]  = body.stress_level
-        if body.hydration_oz is not None: payload["hydration_oz"]  = body.hydration_oz
+        if body.sleep_hours is not None:
+            payload["sleep_hours"] = body.sleep_hours
+        if body.sleep_quality is not None:
+            payload["sleep_quality"] = body.sleep_quality
+        if body.stress_level is not None:
+            payload["stress_level"] = body.stress_level
+        if body.hydration_oz is not None:
+            payload["hydration_oz"] = body.hydration_oz
 
     result = create(session, payload)
 
@@ -217,13 +233,15 @@ def shortcut_log(
         )
     elif body.migraine:
         med_part = f" {body.medication} recorded." if body.medication.strip() else ""
-        spoken   = f"Migraine logged. Pain {body.pain_level} out of 10.{med_part}"
+        spoken = f"Migraine logged. Pain {body.pain_level} out of 10.{med_part}"
         if result.moh_alert:
             spoken += " Medication overuse alert — check the app."
     else:
         parts = ["Migraine-free day logged."]
-        if body.sleep_hours  is not None: parts.append(f"Sleep {body.sleep_hours} hours recorded.")
-        if body.stress_level is not None: parts.append(f"Stress {body.stress_level} out of 10 recorded.")
+        if body.sleep_hours is not None:
+            parts.append(f"Sleep {body.sleep_hours} hours recorded.")
+        if body.stress_level is not None:
+            parts.append(f"Stress {body.stress_level} out of 10 recorded.")
         spoken = " ".join(parts)
 
     moh_warning = None

@@ -9,8 +9,11 @@ in chunk_index order so the text reads coherently.
 import hashlib
 import io
 import re
+from typing import cast
+
 import httpx
 from sqlalchemy import text
+from sqlalchemy.engine import CursorResult
 from sqlmodel import Session
 
 from app.config import settings
@@ -20,9 +23,7 @@ from app.models.knowledge_chunk import EMBEDDING_DIM, KnowledgeChunk
 #   ALL CAPS lines:       BACKGROUND, METHODS AND MATERIALS:
 #   Markdown headers:     ## Introduction, ### Treatment
 #   Numbered sections:    1. Methods, 2) Results
-_SECTION_HEADER_RE = re.compile(
-    r"(?m)^(?:#{1,3}\s+\w|[A-Z][A-Z\s]{3,}:?|\d+[\.\)]\s+[A-Z]\w).*$"
-)
+_SECTION_HEADER_RE = re.compile(r"(?m)^(?:#{1,3}\s+\w|[A-Z][A-Z\s]{3,}:?|\d+[\.\)]\s+[A-Z]\w).*$")
 
 _EMBED_URL = "https://api.openai.com/v1/embeddings"
 
@@ -42,6 +43,7 @@ _SOURCE_LABELS = {
 
 # ── Embedding ─────────────────────────────────────────────────────────────────
 
+
 def _embed(text_input: str) -> list[float]:
     r = httpx.post(
         _EMBED_URL,
@@ -50,10 +52,11 @@ def _embed(text_input: str) -> list[float]:
         timeout=30,
     )
     r.raise_for_status()
-    return r.json()["data"][0]["embedding"]
+    return cast(list[float], r.json()["data"][0]["embedding"])
 
 
 # ── Text chunking ─────────────────────────────────────────────────────────────
+
 
 def _chunk_text(body: str, chunk_size: int = 800, overlap: int = 150) -> list[str]:
     """
@@ -108,12 +111,12 @@ def _chunk_structured(body: str, chunk_size: int = 800, overlap: int = 150) -> l
     boundaries = [m.start() for m in matches] + [len(body)]
     chunks: list[str] = []
 
-    preamble = body[:boundaries[0]].strip()
+    preamble = body[: boundaries[0]].strip()
     if preamble:
         chunks.extend(_chunk_text(preamble, chunk_size, overlap))
 
-    for i, match in enumerate(matches):
-        section = body[boundaries[i]:boundaries[i + 1]].strip()
+    for i, _match in enumerate(matches):
+        section = body[boundaries[i] : boundaries[i + 1]].strip()
         if not section:
             continue
         if len(section) <= chunk_size:
@@ -126,6 +129,7 @@ def _chunk_structured(body: str, chunk_size: int = 800, overlap: int = 150) -> l
 
 # ── pgvector init ─────────────────────────────────────────────────────────────
 
+
 def init_pgvector(engine) -> None:
     """Enable pgvector extension. Must run before create_all()."""
     with engine.connect() as conn:
@@ -135,33 +139,41 @@ def init_pgvector(engine) -> None:
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 
+
 def store_research_chunk(
     session: Session,
-    user_id: int,
+    user_id: int | None,
     source_type: str,
     doc_title: str,
     doc_id: str,
     text_body: str,
 ) -> None:
-    """Store a single research abstract as one chunk (idempotent by doc_id)."""
+    """Store a single research abstract as one chunk (idempotent by doc_id).
+
+    user_id=None means shared/system content visible to all users.
+    """
     existing = session.execute(
-        text("SELECT id FROM knowledge_chunks WHERE user_id = :uid AND doc_id = :did LIMIT 1"),
+        text(
+            "SELECT id FROM knowledge_chunks WHERE (user_id IS NOT DISTINCT FROM :uid) AND doc_id = :did LIMIT 1"
+        ),
         {"uid": user_id, "did": doc_id},
     ).fetchone()
     if existing:
         return
 
     embedding = _embed(text_body)
-    session.add(KnowledgeChunk(
-        user_id=user_id,
-        source_type=source_type,
-        doc_title=doc_title,
-        doc_id=doc_id,
-        page_number=0,
-        chunk_index=0,
-        chunk_text=text_body,
-        embedding=embedding,
-    ))
+    session.add(
+        KnowledgeChunk(
+            user_id=user_id,
+            source_type=source_type,
+            doc_title=doc_title,
+            doc_id=doc_id,
+            page_number=0,
+            chunk_index=0,
+            chunk_text=text_body,
+            embedding=embedding,
+        )
+    )
     session.commit()
 
 
@@ -188,10 +200,7 @@ def ingest_pdf(
 
     # Concatenate all pages before chunking so paragraph boundaries are preserved
     # across page breaks rather than forcing a chunk split at every page end.
-    full_text = "\n".join(
-        (page.extract_text() or "").strip()
-        for page in reader.pages
-    ).strip()
+    full_text = "\n".join((page.extract_text() or "").strip() for page in reader.pages).strip()
 
     if not full_text:
         return 0
@@ -199,16 +208,18 @@ def ingest_pdf(
     total = 0
     for chunk_index, chunk in enumerate(_chunk_structured(full_text)):
         embedding = _embed(chunk)
-        session.add(KnowledgeChunk(
-            user_id=user_id,
-            source_type=source_type,
-            doc_title=doc_title,
-            doc_id=doc_id,
-            page_number=0,
-            chunk_index=chunk_index,
-            chunk_text=chunk,
-            embedding=embedding,
-        ))
+        session.add(
+            KnowledgeChunk(
+                user_id=user_id,
+                source_type=source_type,
+                doc_title=doc_title,
+                doc_id=doc_id,
+                page_number=0,
+                chunk_index=chunk_index,
+                chunk_text=chunk,
+                embedding=embedding,
+            )
+        )
         total += 1
 
     session.commit()
@@ -216,6 +227,7 @@ def ingest_pdf(
 
 
 # ── Retrieval + aggregation ───────────────────────────────────────────────────
+
 
 def _vec_literal(vec: list[float]) -> str:
     """Format a float list as a pgvector literal."""
@@ -302,14 +314,16 @@ def _build_passages(
             combined_text = "\n\n".join(c["chunk_text"] for c in range_chunks)
             top_similarity = max(sim_by_idx[idx] for idx in run if idx in sim_by_idx)
 
-            passages.append({
-                "source_type": info["source_type"],
-                "doc_title": info["doc_title"],
-                "source_label": _SOURCE_LABELS.get(info["source_type"], info["source_type"]),
-                "combined_text": combined_text,
-                "top_similarity": round(top_similarity, 3),
-                "chunk_count": len(range_chunks),
-            })
+            passages.append(
+                {
+                    "source_type": info["source_type"],
+                    "doc_title": info["doc_title"],
+                    "source_label": _SOURCE_LABELS.get(info["source_type"], info["source_type"]),
+                    "combined_text": combined_text,
+                    "top_similarity": round(top_similarity, 3),
+                    "chunk_count": len(range_chunks),
+                }
+            )
 
     # Most relevant passages first
     passages.sort(key=lambda p: p["top_similarity"], reverse=True)
@@ -341,28 +355,32 @@ def retrieve_relevant(
         SELECT user_id, doc_id, source_type, doc_title, chunk_index,
                1 - (embedding <=> '{vec_str}'::vector) AS similarity
         FROM knowledge_chunks
-        WHERE (user_id = :user_id OR user_id = 0)
+        WHERE (user_id = :user_id OR user_id IS NULL)
           AND 1 - (embedding <=> '{vec_str}'::vector) >= :min_sim
         ORDER BY embedding <=> '{vec_str}'::vector
         LIMIT :top_k
     """)
 
     try:
-        rows = session.execute(sql, {
-            "user_id": user_id,
-            "min_sim": min_similarity,
-            "top_k": top_k,
-        }).fetchall()
+        rows = session.execute(
+            sql,
+            {
+                "user_id": user_id,
+                "min_sim": min_similarity,
+                "top_k": top_k,
+            },
+        ).fetchall()
     except Exception:
         return []
 
     if not rows:
         return []
 
-    return _build_passages(session, user_id, rows)
+    return _build_passages(session, user_id, list(rows))
 
 
 # ── Source management ─────────────────────────────────────────────────────────
+
 
 def list_sources(session: Session, user_id: int) -> list[dict]:
     rows = session.execute(
@@ -390,9 +408,12 @@ def list_sources(session: Session, user_id: int) -> list[dict]:
 
 
 def delete_source(session: Session, user_id: int, doc_id: str) -> int:
-    result = session.execute(
-        text("DELETE FROM knowledge_chunks WHERE user_id = :uid AND doc_id = :did"),
-        {"uid": user_id, "did": doc_id},
+    cursor = cast(
+        CursorResult,
+        session.execute(
+            text("DELETE FROM knowledge_chunks WHERE user_id = :uid AND doc_id = :did"),
+            {"uid": user_id, "did": doc_id},
+        ),
     )
     session.commit()
-    return result.rowcount
+    return cursor.rowcount

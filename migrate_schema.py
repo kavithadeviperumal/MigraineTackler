@@ -4,7 +4,9 @@ Changes:
   - Rename alcohol_units -> alcohol_drinks
   - Add missing traditional_medicine TEXT column
 """
+
 import sqlite3
+
 from app.config import settings
 
 conn = sqlite3.connect(settings.db_path)

@@ -1,13 +1,14 @@
-from datetime import date, timedelta
 from collections import Counter
 from dataclasses import dataclass, field
-from sqlmodel import Session, select
-from app.models.log_entry import LogEntry
-from app.graph.state import DeterministicStats
+from datetime import date, timedelta
 
+from sqlmodel import Session, col, select
+
+from app.graph.state import DeterministicStats
+from app.models.log_entry import LogEntry
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
-MOH_TRIPTAN_THRESHOLD = 10    # days in 30-day window
+MOH_TRIPTAN_THRESHOLD = 10  # days in 30-day window
 MOH_NSAID_THRESHOLD = 15
 
 RED_FLAG_SYMPTOMS = {
@@ -25,6 +26,7 @@ RED_FLAG_SYMPTOMS = {
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def check_red_flags(notes: str, prodrome: list[str] | None) -> tuple[bool, list[str]]:
     """
@@ -54,12 +56,13 @@ def check_moh(
     entries = session.exec(stmt).all()
 
     triptan_days = sum(
-        1 for e in entries
-        if e.medications and any("triptan" in m.lower() for m in e.medications)
+        1 for e in entries if e.medications and any("triptan" in m.lower() for m in e.medications)
     )
     nsaid_days = sum(
-        1 for e in entries
-        if e.medications and any(
+        1
+        for e in entries
+        if e.medications
+        and any(
             kw in m.lower()
             for m in e.medications
             for kw in ("ibuprofen", "naproxen", "aspirin", "nsaid", "excedrin")
@@ -70,9 +73,7 @@ def check_moh(
     return alert, triptan_days, nsaid_days
 
 
-def compute_streak(
-    session: Session, as_of: date | None = None, user_id: int | None = None
-) -> int:
+def compute_streak(session: Session, as_of: date | None = None, user_id: int | None = None) -> int:
     """Returns number of consecutive migraine-free days ending on as_of (inclusive)."""
     today = as_of or date.today()
     streak = 0
@@ -97,7 +98,11 @@ def compute_streak(
 
 
 def top_triggers(
-    session: Session, n: int = 5, days: int = 30, as_of: date | None = None, user_id: int | None = None
+    session: Session,
+    n: int = 5,
+    days: int = 30,
+    as_of: date | None = None,
+    user_id: int | None = None,
 ) -> list[str]:
     """
     Returns the top-n trigger labels by frequency over the last `days` days.
@@ -155,14 +160,14 @@ def pain_trend(
         stmt = select(LogEntry).where(
             LogEntry.entry_date >= cutoff,
             LogEntry.migraine_occurred == True,  # noqa: E712
-            LogEntry.pain_level.is_not(None),
+            col(LogEntry.pain_level).is_not(None),
         )
         if user_id is not None:
             stmt = stmt.where(LogEntry.user_id == user_id)
         entries = session.exec(stmt).all()
         if not entries:
             return 0.0
-        return sum(e.pain_level for e in entries) / len(entries)
+        return sum(e.pain_level for e in entries if e.pain_level is not None) / len(entries)
 
     avg_7 = avg_pain(7)
     avg_30 = avg_pain(30)
@@ -186,34 +191,34 @@ LOAD_THRESHOLD = 10.0
 # Sources: Rains & Poceta 2006; Houle et al. 2012; Griffiths et al. 1995;
 #          Okuma et al. 2015; Mukamal et al. 2009; Fernández-de-Las-Peñas et al.
 TRIGGER_WINDOWS: dict[str, int] = {
-    "sleep_deprivation": 3,    # cumulative sleep debt over 3 nights
+    "sleep_deprivation": 3,  # cumulative sleep debt over 3 nights
     "poor_sleep": 3,
     "poor_sleep_quality": 3,
-    "severe_stress": 5,        # letdown migraine can fire up to 5 days post-stressor
+    "severe_stress": 5,  # letdown migraine can fire up to 5 days post-stressor
     "high_stress": 5,
     "caffeine_withdrawal": 2,  # withdrawal peaks at 20–51h (Griffiths 1995)
-    "barometric_shift": 2,     # effect within 24–48h (Okuma 2015)
-    "neck_tension": 3,         # cervicogenic contribution over 2–3 days
-    "alcohol": 1,              # acute — cleared within 24h
+    "barometric_shift": 2,  # effect within 24–48h (Okuma 2015)
+    "neck_tension": 3,  # cervicogenic contribution over 2–3 days
+    "alcohol": 1,  # acute — cleared within 24h
     "caffeine_excess": 1,
-    "hormonal_peak": 1,        # phase-based; present each day of phase, no carryover
+    "hormonal_peak": 1,  # phase-based; present each day of phase, no carryover
     "fragrance_exposure": 1,
     "dehydration": 1,
     "trigger_foods": 1,
-    "meal_skipping": 1,    # hypoglycemia is acute; resolves with next meal
+    "meal_skipping": 1,  # hypoglycemia is acute; resolves with next meal
     "fasting": 1,
-    "novel_exposure": 2,   # unknown substance — 2-day window covers delayed reactions
+    "novel_exposure": 2,  # unknown substance — 2-day window covers delayed reactions
 }
 
 
 @dataclass
 class ToxicLoad:
     today_score: float
-    carryover_score: float     # contributions from prior days still within their window
+    carryover_score: float  # contributions from prior days still within their window
     rolling_score: float
     threshold: float
-    fill_pct: float            # 0–100, capped at 100
-    risk_level: str            # low | moderate | high | critical
+    fill_pct: float  # 0–100, capped at 100
+    risk_level: str  # low | moderate | high | critical
     breakdown: dict[str, float] = field(default_factory=dict)
 
 
@@ -279,11 +284,22 @@ def daily_load_score(entry: LogEntry) -> tuple[float, dict[str, float]]:
 
     if entry.foods:
         trigger_foods = [
-            f for f in entry.foods
-            if f in {
-                "alcohol", "beer", "red_wine", "chocolate", "aged_cheese",
-                "processed_meat", "MSG", "artificial_sweeteners", "citrus",
-                "fermented_foods", "tyramine_rich_foods", "yeast_extract",
+            f
+            for f in entry.foods
+            if f
+            in {
+                "alcohol",
+                "beer",
+                "red_wine",
+                "chocolate",
+                "aged_cheese",
+                "processed_meat",
+                "MSG",
+                "artificial_sweeteners",
+                "citrus",
+                "fermented_foods",
+                "tyramine_rich_foods",
+                "yeast_extract",
             }
         ]
         if trigger_foods:

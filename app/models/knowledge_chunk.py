@@ -1,8 +1,8 @@
 from datetime import datetime
 
-from sqlalchemy import Column, Text
 from pgvector.sqlalchemy import Vector
-from sqlmodel import SQLModel, Field
+from sqlalchemy import Column, Text
+from sqlmodel import Field, SQLModel
 
 EMBEDDING_DIM = 768  # OpenAI text-embedding-3-small (dimensions=768)
 
@@ -21,10 +21,10 @@ class KnowledgeChunk(SQLModel, table=True):
     __tablename__ = "knowledge_chunks"
 
     id: int | None = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="users.id", index=True)
+    user_id: int | None = Field(default=None, foreign_key="users.id", index=True)
     source_type: str = Field(index=True)
     doc_title: str
-    doc_id: str = Field(index=True)   # PMID for pubmed; SHA-256 prefix for uploads
+    doc_id: str = Field(index=True)  # PMID for pubmed; SHA-256 prefix for uploads
     page_number: int = Field(default=0)
     chunk_index: int = Field(default=0)
     chunk_text: str = Field(sa_column=Column(Text))

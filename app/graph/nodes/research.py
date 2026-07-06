@@ -1,20 +1,20 @@
 import logging
-
-import httpx
-from pydantic import ValidationError
-from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 import xml.etree.ElementTree as ET
 from datetime import date
+from typing import cast
 
+import httpx
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from pydantic import ValidationError
 from sqlmodel import Session
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
-from app.graph.state import MigraineState
 from app.config import settings
 from app.database import engine
-from app.services.rag_service import retrieve_relevant, store_research_chunk
 from app.graph.nodes.schemas import ResearchOutput
+from app.graph.state import MigraineState
+from app.services.rag_service import retrieve_relevant, store_research_chunk
 
 _logger = logging.getLogger(__name__)
 
@@ -38,11 +38,11 @@ def _invoke(messages: list):
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
-_PUBMED_ESEARCH   = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-_PUBMED_ESUMMARY  = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
-_PUBMED_EFETCH    = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+_PUBMED_ESEARCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+_PUBMED_ESUMMARY = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+_PUBMED_EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 _SEMANTIC_SCHOLAR = "https://api.semanticscholar.org/graph/v1/paper/search"
-_SS_FIELDS        = "title,authors,year,abstract,externalIds,citationCount,venue"
+_SS_FIELDS = "title,authors,year,abstract,externalIds,citationCount,venue"
 
 SYSTEM_PROMPT = """\
 You are the Research Agent for MigraineTackler. You synthesize evidence across multiple source \
@@ -79,6 +79,7 @@ which may include clinical guidelines, Ayurvedic texts, and doctor notes.
 
 # ── PubMed retrieval ──────────────────────────────────────────────────────────
 
+
 def _pubmed_search(query: str, max_results: int = 5) -> list[str]:
     """Return a list of PMIDs for the query."""
     try:
@@ -87,7 +88,7 @@ def _pubmed_search(query: str, max_results: int = 5) -> list[str]:
             params={"db": "pubmed", "term": query, "retmax": max_results, "retmode": "json"},
             timeout=10,
         )
-        return r.json().get("esearchresult", {}).get("idlist", [])
+        return cast(list[str], r.json().get("esearchresult", {}).get("idlist", []))
     except Exception:
         return []
 
@@ -118,11 +119,11 @@ def _pubmed_metadata(pmids: list[str]) -> dict[str, dict]:
                 "",
             )
             out[pmid] = {
-                "title":   item.get("title", ""),
+                "title": item.get("title", ""),
                 "authors": authors[:3],
-                "year":    item.get("pubdate", "")[:4],
+                "year": item.get("pubdate", "")[:4],
                 "journal": item.get("fulljournalname", item.get("source", "")),
-                "doi":     doi,
+                "doi": doi,
             }
         return out
     except Exception:
@@ -152,17 +153,18 @@ def _pubmed_abstracts(pmids: list[str]) -> dict[str, str]:
             sections = []
             for part in abstract_parts:
                 label = part.get("Label", "")
-                text  = (part.text or "").strip()
+                text = (part.text or "").strip()
                 if text:
                     sections.append(f"{label}: {text}" if label else text)
-            out[pmid_el.text] = " ".join(sections)
+            if pmid_el.text:
+                out[pmid_el.text] = " ".join(sections)
         return out
     except Exception:
         return {}
 
 
 def _search_pubmed(query: str, max_results: int = 5) -> list[dict]:
-    pmids    = _pubmed_search(query, max_results)
+    pmids = _pubmed_search(query, max_results)
     metadata = _pubmed_metadata(pmids)
     abstracts = _pubmed_abstracts(pmids)
 
@@ -172,22 +174,25 @@ def _search_pubmed(query: str, max_results: int = 5) -> list[dict]:
         if not abstract:
             continue
         meta = metadata.get(pmid, {})
-        papers.append({
-            "pmid":           pmid,
-            "doi":            meta.get("doi", ""),
-            "title":          meta.get("title", ""),
-            "authors":        meta.get("authors", []),
-            "year":           meta.get("year", ""),
-            "journal":        meta.get("journal", ""),
-            "abstract":       abstract,
-            "citation_count": None,
-            "source":         "PubMed",
-            "url":            f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
-        })
+        papers.append(
+            {
+                "pmid": pmid,
+                "doi": meta.get("doi", ""),
+                "title": meta.get("title", ""),
+                "authors": meta.get("authors", []),
+                "year": meta.get("year", ""),
+                "journal": meta.get("journal", ""),
+                "abstract": abstract,
+                "citation_count": None,
+                "source": "PubMed",
+                "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+            }
+        )
     return papers
 
 
 # ── Semantic Scholar retrieval ────────────────────────────────────────────────
+
 
 def _search_semantic_scholar(query: str, max_results: int = 5) -> list[dict]:
     try:
@@ -205,27 +210,30 @@ def _search_semantic_scholar(query: str, max_results: int = 5) -> list[dict]:
             if not abstract:
                 continue
             external = item.get("externalIds") or {}
-            authors  = [a.get("name", "") for a in (item.get("authors") or [])[:3]]
-            pmid     = str(external.get("PubMed", ""))
-            doi      = external.get("DOI", "")
-            papers.append({
-                "pmid":           pmid,
-                "doi":            doi,
-                "title":          item.get("title", ""),
-                "authors":        authors,
-                "year":           str(item.get("year") or ""),
-                "journal":        item.get("venue", ""),
-                "abstract":       abstract,
-                "citation_count": item.get("citationCount"),
-                "source":         "Semantic Scholar",
-                "url":            f"https://doi.org/{doi}" if doi else "",
-            })
+            authors = [a.get("name", "") for a in (item.get("authors") or [])[:3]]
+            pmid = str(external.get("PubMed", ""))
+            doi = external.get("DOI", "")
+            papers.append(
+                {
+                    "pmid": pmid,
+                    "doi": doi,
+                    "title": item.get("title", ""),
+                    "authors": authors,
+                    "year": str(item.get("year") or ""),
+                    "journal": item.get("venue", ""),
+                    "abstract": abstract,
+                    "citation_count": item.get("citationCount"),
+                    "source": "Semantic Scholar",
+                    "url": f"https://doi.org/{doi}" if doi else "",
+                }
+            )
         return papers
     except Exception:
         return []
 
 
 # ── Merge & deduplicate ───────────────────────────────────────────────────────
+
 
 def _deduplicate(pubmed: list[dict], ss: list[dict]) -> list[dict]:
     """PubMed wins on PMID conflict; Semantic Scholar fills in papers not in PubMed."""
@@ -240,11 +248,12 @@ def _deduplicate(pubmed: list[dict], ss: list[dict]) -> list[dict]:
 
 def _retrieve_papers(query: str, max_per_source: int = 5) -> list[dict]:
     pubmed = _search_pubmed(query, max_per_source)
-    ss     = _search_semantic_scholar(query, max_per_source)
+    ss = _search_semantic_scholar(query, max_per_source)
     return _deduplicate(pubmed, ss)
 
 
 # ── Prompt helpers ────────────────────────────────────────────────────────────
+
 
 def _format_kb_block(passages: list[dict]) -> str:
     """Format aggregated Knowledge Base passages for the prompt."""
@@ -265,7 +274,7 @@ def _format_papers_block(papers: list[dict]) -> str:
     for i, p in enumerate(papers, 1):
         authors = "; ".join(p["authors"]) or "Unknown"
         cite_note = f" | {p['citation_count']} citations" if p["citation_count"] is not None else ""
-        url_note  = f" | {p['url']}" if p["url"] else ""
+        url_note = f" | {p['url']}" if p["url"] else ""
         lines += [
             f"\n[{i}] {p['title']}",
             f"    {authors} ({p['year']}) — {p['journal']}{cite_note} [{p['source']}]{url_note}",
@@ -281,14 +290,18 @@ def _build_context(
     question: str,
     state: MigraineState,
 ) -> str:
-    lst = lambda v: ", ".join(dict.fromkeys(v)) if v else "none identified"
-    user_ctx = "\n".join([
-        "=== USER CONTEXT (for relevance) ===",
-        f"Migraine subtype:    {state.get('migraine_subtype', 'unknown')}",
-        f"Confirmed triggers:  {lst(state.get('confirmed_triggers', []))}",
-        f"Suspected triggers:  {lst(state.get('suspected_triggers', []))}",
-        f"Current hypothesis:  {state.get('current_root_cause_hypothesis', 'none yet')}",
-    ])
+    def lst(v) -> str:
+        return ", ".join(dict.fromkeys(v)) if v else "none identified"
+
+    user_ctx = "\n".join(
+        [
+            "=== USER CONTEXT (for relevance) ===",
+            f"Migraine subtype:    {state.get('migraine_subtype', 'unknown')}",
+            f"Confirmed triggers:  {lst(state.get('confirmed_triggers', []))}",
+            f"Suspected triggers:  {lst(state.get('suspected_triggers', []))}",
+            f"Current hypothesis:  {state.get('current_root_cause_hypothesis', 'none yet')}",
+        ]
+    )
     papers_block = _format_papers_block(papers) if papers else "No live papers retrieved."
     kb_block = _format_kb_block(kb_passages)
 
@@ -303,7 +316,8 @@ def _extract_question(state: MigraineState) -> tuple[str, bool]:
     """Returns (question, is_auto_triggered)."""
     for msg in reversed(state.get("messages", [])):
         if isinstance(msg, HumanMessage):
-            return msg.content, False
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            return content, False
     confirmed = set(state.get("confirmed_triggers", []))
     seen = set(state.get("research_triggers_seen", []))
     new_triggers = confirmed - seen
@@ -324,13 +338,14 @@ def _format_references_block(papers: list[dict], cited_indices: list[int]) -> st
     lines = ["\n\n---\n**References**"]
     for i, p in enumerate(cited, 1):
         authors = "; ".join(p["authors"]) or "Unknown"
-        url     = p.get("url", "")
-        link    = f" [[{p['source']}]]({url})" if url else f" [{p['source']}]"
+        url = p.get("url", "")
+        link = f" [[{p['source']}]]({url})" if url else f" [{p['source']}]"
         lines.append(f"[{i}] {authors} ({p['year']}). *{p['title']}*. {p['journal']}.{link}")
     return "\n".join(lines)
 
 
 # ── Post-hoc validation ───────────────────────────────────────────────────────
+
 
 def _validate_citations(
     result: ResearchOutput,
@@ -338,26 +353,35 @@ def _validate_citations(
     kb_passages: list[dict],
 ) -> tuple[ResearchOutput, bool]:
     valid_paper = [i for i in result.cited_indices if 1 <= i <= len(papers)]
-    valid_kb    = [i for i in result.cited_kb_indices if 1 <= i <= len(kb_passages)]
-    stripped    = len(valid_paper) != len(result.cited_indices) or len(valid_kb) != len(result.cited_kb_indices)
+    valid_kb = [i for i in result.cited_kb_indices if 1 <= i <= len(kb_passages)]
+    stripped = len(valid_paper) != len(result.cited_indices) or len(valid_kb) != len(
+        result.cited_kb_indices
+    )
     if stripped:
         _logger.warning(
             "research: out-of-bounds citations stripped — %s invalid paper indices, %s invalid kb indices",
             [i for i in result.cited_indices if not (1 <= i <= len(papers))],
             [i for i in result.cited_kb_indices if not (1 <= i <= len(kb_passages))],
         )
-        result = result.model_copy(update={"cited_indices": valid_paper, "cited_kb_indices": valid_kb})
+        result = result.model_copy(
+            update={"cited_indices": valid_paper, "cited_kb_indices": valid_kb}
+        )
     return result, stripped
 
 
 # ── Node entry point ──────────────────────────────────────────────────────────
+
 
 def run(state: MigraineState) -> dict:
     question, is_auto = _extract_question(state)
     if not question:
         return {
             "current_agent": "research",
-            "messages": [AIMessage(content="No research question provided. Please ask a specific question about migraines or your triggers.")],
+            "messages": [
+                AIMessage(
+                    content="No research question provided. Please ask a specific question about migraines or your triggers."
+                )
+            ],
         }
 
     user_id = state.get("user_id")
@@ -381,26 +405,38 @@ def run(state: MigraineState) -> dict:
     if not papers and not kb_passages:
         return {
             "current_agent": "research",
-            "messages": [AIMessage(content="Could not retrieve research papers from PubMed or Semantic Scholar, and no relevant knowledge base context found. Please check your internet connection and try again.")],
+            "messages": [
+                AIMessage(
+                    content="Could not retrieve research papers from PubMed or Semantic Scholar, and no relevant knowledge base context found. Please check your internet connection and try again."
+                )
+            ],
         }
 
     context = _build_context(papers, kb_passages, question, state)
 
     try:
-        result: ResearchOutput = _invoke([
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=context),
-        ])
+        result: ResearchOutput = _invoke(
+            [
+                SystemMessage(content=SYSTEM_PROMPT),
+                HumanMessage(content=context),
+            ]
+        )
     except Exception as exc:
         return {
             "current_agent": "research",
-            "messages": [AIMessage(content=f"Research synthesis failed — AI service error: {exc}.")],
+            "messages": [
+                AIMessage(content=f"Research synthesis failed — AI service error: {exc}.")
+            ],
         }
 
     result, citations_stripped = _validate_citations(result, papers, kb_passages)
 
     references_block = _format_references_block(papers, result.cited_indices)
-    final_content    = result.research_findings + references_block if references_block else result.research_findings
+    final_content = (
+        result.research_findings + references_block
+        if references_block
+        else result.research_findings
+    )
     if kb_failed:
         final_content += "\n\n_Note: your personal documents were temporarily unavailable._"
     if citations_stripped:
@@ -412,9 +448,9 @@ def run(state: MigraineState) -> dict:
     }
 
     if result.key_finding and result.topic:
-        n_live  = len(result.cited_indices)
-        n_kb    = len(result.cited_kb_indices)
-        suffix  = f" ({n_live} live papers; {n_kb} KB passages)"
+        n_live = len(result.cited_indices)
+        n_kb = len(result.cited_kb_indices)
+        suffix = f" ({n_live} live papers; {n_kb} KB passages)"
         updates["research_findings"] = [
             f"[{date.today()}] {result.topic}: {result.key_finding}{suffix}"
         ]

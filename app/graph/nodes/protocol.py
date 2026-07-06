@@ -2,14 +2,14 @@ import json
 import logging
 from datetime import date
 
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
-from app.graph.state import MigraineState, Protocol, ProtocolItem
 from app.config import settings
 from app.graph.nodes.schemas import ProtocolOutput
+from app.graph.state import MigraineState, Protocol, ProtocolItem
 
 _llm = ChatOpenAI(
     model="gpt-4o-mini",
@@ -67,7 +67,9 @@ Always recommend professional medical consultation for medication changes.
 
 
 def _build_context(state: MigraineState) -> str:
-    lst = lambda v: ", ".join(v) if v else "none identified"
+    def lst(v) -> str:
+        return ", ".join(v) if v else "none identified"
+
     stats = state.get("deterministic_stats", {})
 
     existing_protocol = state.get("current_protocol", {})
@@ -92,7 +94,9 @@ def _build_context(state: MigraineState) -> str:
         f"MOH alert active:     {stats.get('moh_alert_active', False)}",
         "",
         f"=== EXISTING PROTOCOL (v{prior_version}) ===",
-        json.dumps(existing_protocol, indent=2) if existing_protocol else "None — this is the first protocol.",
+        json.dumps(existing_protocol, indent=2)
+        if existing_protocol
+        else "None — this is the first protocol.",
     ]
     return "\n".join(lines)
 
@@ -104,16 +108,22 @@ def run(state: MigraineState) -> dict:
     prior_version = existing.get("version", 0)
 
     try:
-        result: ProtocolOutput = _invoke([
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=context),
-        ])
+        result: ProtocolOutput = _invoke(
+            [
+                SystemMessage(content=SYSTEM_PROMPT),
+                HumanMessage(content=context),
+            ]
+        )
     except Exception as exc:
         _logger.warning("protocol: LLM invoke failed: %s", exc)
         return {
             "current_agent": "protocol",
             "current_protocol": existing,
-            "messages": [AIMessage(content="Protocol generation failed — AI service error. Your existing plan remains active.")],
+            "messages": [
+                AIMessage(
+                    content="Protocol generation failed — AI service error. Your existing plan remains active."
+                )
+            ],
         }
 
     try:

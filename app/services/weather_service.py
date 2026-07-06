@@ -1,7 +1,8 @@
 import logging
+from typing import Any
 
 import httpx
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.config import settings
 from app.models.log_entry import LogEntry
@@ -22,6 +23,7 @@ def _fetch_openweather(
     if not settings.openweather_api_key:
         return None
     try:
+        params: dict[str, Any]
         if lat is not None and lon is not None:
             params = {"lat": lat, "lon": lon}
         elif city:
@@ -86,12 +88,12 @@ def _pressure_delta(session: Session, current_hpa: float, current_id: int) -> fl
     prev = session.exec(
         select(LogEntry)
         .where(
-            LogEntry.barometric_pressure_hpa.is_not(None),
+            col(LogEntry.barometric_pressure_hpa).is_not(None),
             LogEntry.id != current_id,
         )
-        .order_by(LogEntry.created_at.desc())
+        .order_by(col(LogEntry.created_at).desc())
     ).first()
-    if prev is None:
+    if prev is None or prev.barometric_pressure_hpa is None:
         return None
     return round(current_hpa - prev.barometric_pressure_hpa, 2)
 
@@ -123,6 +125,7 @@ def append_weather(
         entry.location_city = f"{city}, {country}" if country else city
 
     if pressure is not None:
+        assert entry.id is not None
         entry.pressure_delta_24h = _pressure_delta(session, pressure, entry.id)
 
     aqi_data = _fetch_airnow()

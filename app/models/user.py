@@ -1,7 +1,6 @@
 import hashlib
 import os
 from datetime import datetime
-from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
@@ -9,7 +8,7 @@ from sqlmodel import Field, SQLModel
 class User(SQLModel, table=True):
     __tablename__ = "users"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     username: str = Field(unique=True, index=True)
     password_hash: str
@@ -24,9 +23,7 @@ class User(SQLModel, table=True):
     def verify_password(password: str, stored: str) -> bool:
         try:
             salt_hex, key_hex = stored.split(":")
-            key = hashlib.pbkdf2_hmac(
-                "sha256", password.encode(), bytes.fromhex(salt_hex), 100_000
-            )
+            key = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt_hex), 100_000)
             return key.hex() == key_hex
         except Exception:
             return False

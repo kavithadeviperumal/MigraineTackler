@@ -1,13 +1,13 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from app.api.schemas import TokenResponse, UserLogin, UserRegister
 from app.config import settings
 from app.database import get_session_dep
 from app.models.user import User
-from app.api.schemas import UserRegister, UserLogin, TokenResponse
 
 router = APIRouter()
 
@@ -15,12 +15,15 @@ router = APIRouter()
 def _create_token(user_id: int) -> str:
     payload = {
         "sub": str(user_id),
-        "exp": datetime.now(timezone.utc) + timedelta(days=settings.jwt_expire_days),
+        "exp": datetime.now(UTC) + timedelta(days=settings.jwt_expire_days),
     }
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm="HS256")
+    token = jwt.encode(payload, settings.jwt_secret_key, algorithm="HS256")
+    # PyJWT < 2.0 returned bytes; >= 2.0 returns str. Handle both.
+    return token.decode("utf-8") if isinstance(token, bytes) else token
 
 
 def _token_response(user: User) -> TokenResponse:
+    assert user.id is not None
     return TokenResponse(
         token=_create_token(user.id),
         id=user.id,

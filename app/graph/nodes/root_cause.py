@@ -1,16 +1,16 @@
 import logging
 
-from pydantic import ValidationError
-from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from pydantic import ValidationError
 from sqlmodel import Session
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
-from app.graph.state import MigraineState
 from app.config import settings
 from app.database import engine
-from app.services.rag_service import retrieve_relevant
 from app.graph.nodes.schemas import RootCauseOutput
+from app.graph.state import MigraineState
+from app.services.rag_service import retrieve_relevant
 
 _logger = logging.getLogger(__name__)
 
@@ -89,9 +89,10 @@ def _format_kb_block(passages: list[dict]) -> str:
 
 
 def _build_context(state: MigraineState, kb_passages: list[dict]) -> str:
-    lst = lambda v: ", ".join(dict.fromkeys(v)) if v else "none yet"
+    def lst(v) -> str:
+        return ", ".join(dict.fromkeys(v)) if v else "none yet"
 
-    stats    = state.get("deterministic_stats", {})
+    stats = state.get("deterministic_stats", {})
     research = state.get("research_findings", [])[-20:]
     kb_block = _format_kb_block(kb_passages)
 
@@ -129,10 +130,14 @@ def _build_context(state: MigraineState, kb_passages: list[dict]) -> str:
 
 def _validate_grounding(result: RootCauseOutput) -> RootCauseOutput:
     if result.hypothesis and not result.evidence:
-        _logger.warning("root_cause: hypothesis set but evidence list is empty — downgrading confidence to low")
+        _logger.warning(
+            "root_cause: hypothesis set but evidence list is empty — downgrading confidence to low"
+        )
         return result.model_copy(update={"confidence": "low"})
     if result.confidence == "high" and len(result.evidence) < 2:
-        _logger.warning("root_cause: high confidence with fewer than 2 evidence items — downgrading to medium")
+        _logger.warning(
+            "root_cause: high confidence with fewer than 2 evidence items — downgrading to medium"
+        )
         return result.model_copy(update={"confidence": "medium"})
     return result
 
@@ -157,24 +162,30 @@ def run(state: MigraineState) -> dict:
     context = _build_context(state, kb_passages)
 
     try:
-        result: RootCauseOutput = _invoke([
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=context),
-        ])
+        result: RootCauseOutput = _invoke(
+            [
+                SystemMessage(content=SYSTEM_PROMPT),
+                HumanMessage(content=context),
+            ]
+        )
     except Exception as exc:
         return {
             "current_agent": "root_cause",
-            "messages": [AIMessage(content=f"Root cause analysis failed — AI service error: {exc}. Your data has been saved; try again in a moment.")],
+            "messages": [
+                AIMessage(
+                    content=f"Root cause analysis failed — AI service error: {exc}. Your data has been saved; try again in a moment."
+                )
+            ],
         }
 
     result = _validate_grounding(result)
 
-    confirmed = set(state.get("confirmed_triggers", []))
-    suspected = set(state.get("suspected_triggers", []))
+    confirmed_set: set[str] = set(state.get("confirmed_triggers", []))
+    suspected_set: set[str] = set(state.get("suspected_triggers", []))
 
     updates: dict = {
         "current_agent": "root_cause",
-        "root_cause_triggers_seen": list(confirmed | suspected),
+        "root_cause_triggers_seen": list(confirmed_set | suspected_set),
     }
 
     if result.hypothesis:
@@ -185,6 +196,8 @@ def run(state: MigraineState) -> dict:
         updates["root_cause_evidence"] = [e.model_dump() for e in result.evidence]
 
     if kb_failed:
-        updates["messages"] = [AIMessage(content="Note: your personal documents were temporarily unavailable.")]
+        updates["messages"] = [
+            AIMessage(content="Note: your personal documents were temporarily unavailable.")
+        ]
 
     return updates

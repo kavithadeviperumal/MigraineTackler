@@ -1,6 +1,8 @@
 from collections.abc import Generator
+
 from sqlalchemy import text
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import Session, SQLModel, create_engine
+
 from app.config import settings
 
 
@@ -21,16 +23,18 @@ def create_db_and_tables() -> None:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         conn.commit()
 
-    import app.models.user          # noqa: F401 — register with SQLModel metadata
+    import app.models.knowledge_chunk
+    import app.models.log_entry
+    import app.models.user  # — register with SQLModel metadata
     import app.models.user_profile  # noqa: F401
-    import app.models.log_entry     # noqa: F401
-    import app.models.knowledge_chunk  # noqa: F401
 
-    # Inline schema migrations — ADD COLUMN IF NOT EXISTS is idempotent
+    # Inline schema migrations — all statements are idempotent
     with engine.connect() as conn:
-        conn.execute(text(
-            "ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS home_city VARCHAR"
-        ))
+        conn.execute(text("ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS home_city VARCHAR"))
+        # Make knowledge_chunks.user_id nullable so shared/system chunks use NULL instead of 0.
+        # Migrate any existing user_id=0 rows (guideline seeder sentinel) to NULL.
+        conn.execute(text("ALTER TABLE knowledge_chunks ALTER COLUMN user_id DROP NOT NULL"))
+        conn.execute(text("UPDATE knowledge_chunks SET user_id = NULL WHERE user_id = 0"))
         conn.commit()
 
     SQLModel.metadata.create_all(engine)

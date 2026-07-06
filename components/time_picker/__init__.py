@@ -1,6 +1,7 @@
 import os
-import streamlit.components.v1 as components
 from datetime import time
+
+import streamlit.components.v1 as components
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _component = components.declare_component("time_picker", path=_DIR)

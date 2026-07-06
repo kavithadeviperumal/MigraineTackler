@@ -1,17 +1,17 @@
 import logging
 from datetime import date, timedelta
 
-from pydantic import ValidationError
-from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from pydantic import ValidationError
 from sqlmodel import Session
+from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
-from app.graph.state import MigraineState
-from app.database import engine
-from app.services.log_service import list_recent
 from app.config import settings
+from app.database import engine
 from app.graph.nodes.schemas import PatternOutput
+from app.graph.state import MigraineState
+from app.services.log_service import list_recent
 
 _llm = ChatOpenAI(
     model="gpt-4o-mini",
@@ -31,6 +31,7 @@ _logger = logging.getLogger(__name__)
 )
 def _invoke(messages: list):
     return _structured_llm.invoke(messages)
+
 
 SYSTEM_PROMPT = """\
 You are the Pattern Agent for MigraineTackler. You receive a structured history of migraine \
@@ -86,11 +87,16 @@ def _format_entries(entries: list) -> str:
         "",
     ]
 
-    for e in entries:
-        yn = lambda v: "Yes" if v else "No"
-        opt = lambda v, suffix="": f"{v}{suffix}" if v is not None else "—"
-        lst = lambda v: ", ".join(v) if v else "none"
+    def yn(v) -> str:
+        return "Yes" if v else "No"
 
+    def opt(v, suffix="") -> str:
+        return f"{v}{suffix}" if v is not None else "—"
+
+    def lst(v) -> str:
+        return ", ".join(v) if v else "none"
+
+    for e in entries:
         lines.append(f"--- {e.entry_date} | Migraine: {yn(e.migraine_occurred)} ---")
         if e.migraine_occurred:
             lines.append(
@@ -141,15 +147,21 @@ def run(state: MigraineState) -> dict:
     context = _format_entries(entries)
 
     try:
-        result: PatternOutput = _invoke([
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=context),
-        ])
+        result: PatternOutput = _invoke(
+            [
+                SystemMessage(content=SYSTEM_PROMPT),
+                HumanMessage(content=context),
+            ]
+        )
     except Exception as exc:
         _logger.warning("pattern: LLM invoke failed: %s", exc)
         return {
             "current_agent": "pattern",
-            "messages": [AIMessage(content="Pattern analysis failed — AI service error. Please try again in a moment.")],
+            "messages": [
+                AIMessage(
+                    content="Pattern analysis failed — AI service error. Please try again in a moment."
+                )
+            ],
         }
 
     updates: dict = {

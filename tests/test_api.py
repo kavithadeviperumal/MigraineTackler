@@ -2,8 +2,8 @@
 API integration tests — covers POST /logs, GET /logs/{id}, GET /logs.
 No Claude API calls; no LangGraph. Tests the HTTP layer + DB writes only.
 """
-from datetime import date
 
+from datetime import date
 
 BASE_LOG = {
     "entry_date": str(date.today()),

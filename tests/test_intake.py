@@ -2,14 +2,14 @@
 Unit tests for the intake node.
 The LLM is mocked so no Claude API calls are made.
 """
+
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
-from sqlmodel import Session
 
-from app.graph.nodes.intake import run, _build_log_context
-from app.graph.state import default_state, DeterministicStats
+from app.graph.nodes.intake import _build_log_context, run
+from app.graph.state import DeterministicStats, default_state
 from app.models.log_entry import LogEntry
 
 
@@ -43,6 +43,7 @@ def _make_state(log_id: int = 1, **kwargs) -> dict:
 
 
 # ── _build_log_context ────────────────────────────────────────────────────────
+
 
 def test_context_contains_entry_date(test_engine):
     entry = _make_entry()
@@ -97,6 +98,7 @@ def test_context_includes_stats(test_engine):
 
 
 # ── run() ─────────────────────────────────────────────────────────────────────
+
 
 def test_run_returns_ai_message(test_engine, session):
     entry = _make_entry()
