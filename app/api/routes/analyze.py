@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from sqlmodel import Session
 
 from app.api.deps import get_current_user
+from app.api.schemas import AnalyzeRequest, AnalyzeResponse
 from app.database import get_session_dep
 from app.graph.graph import get_graph
 from app.graph.state import default_state
 from app.models.user import User
 from app.rules.rules_engine import build_deterministic_stats
-from app.api.schemas import AnalyzeRequest, AnalyzeResponse
 
 router = APIRouter()
 
@@ -59,11 +59,7 @@ def analyze(
 
     result = graph.invoke(full_state, config=config)
 
-    ai_messages = [
-        msg.content
-        for msg in result.get("messages", [])
-        if isinstance(msg, AIMessage)
-    ]
+    ai_messages = [msg.content for msg in result.get("messages", []) if isinstance(msg, AIMessage)]
 
     return AnalyzeResponse(
         messages=ai_messages,

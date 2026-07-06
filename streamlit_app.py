@@ -1,36 +1,94 @@
-import streamlit as st
-import httpx
 from contextlib import contextmanager
 from datetime import date, datetime, time, timedelta
+from typing import Any, cast
+
+import httpx
+import streamlit as st
+
 from components.time_picker import time_picker as _time_picker_widget
 
 API_BASE = st.secrets.get("API_BASE", "http://localhost:8000")
 
 _MIGRAINE_MEDICATIONS = [
-    "acetaminophen", "acetaminophen + aspirin + caffeine", "almotriptan",
-    "amitriptyline", "aspirin", "atenolol", "candesartan",
-    "dihydroergotamine", "divalproex", "eletriptan", "eptinezumab",
-    "erenumab", "ergotamine", "fremanezumab", "frovatriptan",
-    "gabapentin", "galcanezumab", "ibuprofen", "lasmiditan",
-    "lisinopril", "metoclopramide", "metoprolol", "naproxen",
-    "naratriptan", "nortriptyline", "onabotulinumtoxinA", "ondansetron",
-    "prochlorperazine", "promethazine", "propranolol", "rimegepant",
-    "rizatriptan", "sumatriptan", "timolol", "topiramate",
-    "ubrogepant", "valproate", "venlafaxine", "verapamil",
-    "zavegepant", "zolmitriptan",
+    "acetaminophen",
+    "acetaminophen + aspirin + caffeine",
+    "almotriptan",
+    "amitriptyline",
+    "aspirin",
+    "atenolol",
+    "candesartan",
+    "dihydroergotamine",
+    "divalproex",
+    "eletriptan",
+    "eptinezumab",
+    "erenumab",
+    "ergotamine",
+    "fremanezumab",
+    "frovatriptan",
+    "gabapentin",
+    "galcanezumab",
+    "ibuprofen",
+    "lasmiditan",
+    "lisinopril",
+    "metoclopramide",
+    "metoprolol",
+    "naproxen",
+    "naratriptan",
+    "nortriptyline",
+    "onabotulinumtoxinA",
+    "ondansetron",
+    "prochlorperazine",
+    "promethazine",
+    "propranolol",
+    "rimegepant",
+    "rizatriptan",
+    "sumatriptan",
+    "timolol",
+    "topiramate",
+    "ubrogepant",
+    "valproate",
+    "venlafaxine",
+    "verapamil",
+    "zavegepant",
+    "zolmitriptan",
 ]
 
 _ALL_FOODS = [
-    "aged_cheese", "alcohol", "artificial_sweeteners", "avocado",
-    "bananas", "beans_legumes", "beer", "caffeine", "chocolate",
-    "citrus", "fermented_foods", "garlic", "gluten", "MSG",
-    "nuts", "onions", "pickled_foods", "pizza", "processed_meat",
-    "red_wine", "smoked_fish", "tyramine_rich_foods", "yeast_extract",
+    "aged_cheese",
+    "alcohol",
+    "artificial_sweeteners",
+    "avocado",
+    "bananas",
+    "beans_legumes",
+    "beer",
+    "caffeine",
+    "chocolate",
+    "citrus",
+    "fermented_foods",
+    "garlic",
+    "gluten",
+    "MSG",
+    "nuts",
+    "onions",
+    "pickled_foods",
+    "pizza",
+    "processed_meat",
+    "red_wine",
+    "smoked_fish",
+    "tyramine_rich_foods",
+    "yeast_extract",
 ]
 
 _SOS_QUICK_MEDS = [
-    "None yet", "acetaminophen", "ibuprofen", "rimegepant",
-    "rizatriptan", "sumatriptan", "ubrogepant", "zolmitriptan", "other",
+    "None yet",
+    "acetaminophen",
+    "ibuprofen",
+    "rimegepant",
+    "rizatriptan",
+    "sumatriptan",
+    "ubrogepant",
+    "zolmitriptan",
+    "other",
 ]
 
 _HORMONAL_STATUSES = {
@@ -46,15 +104,18 @@ _HORMONAL_STATUSES = {
 
 st.set_page_config(page_title="MigraineTackler", page_icon="🧠", layout="wide")
 
-st.markdown("""
+st.markdown(
+    """
 <style>
 [data-testid="stStatusWidget"] { display: none !important; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ── Session state ─────────────────────────────────────────────────────────────
 
-for _k, _v in {
+_SESSION_DEFAULTS: dict[str, Any] = {
     "user_id": None,
     "username": None,
     "token": None,
@@ -68,18 +129,20 @@ for _k, _v in {
     "onboarding_data": {},
     "onboarding_complete": False,
     "lifestyle_audit_output": None,
-}.items():
+}
+for _k, _v in _SESSION_DEFAULTS.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
 
 # ── Persistent auth via query params ─────────────────────────────────────────
 
 if st.session_state.token is None and "token" in st.query_params:
-    st.session_state.token    = st.query_params["token"]
-    st.session_state.user_id  = st.query_params.get("uid")
+    st.session_state.token = st.query_params["token"]
+    st.session_state.user_id = st.query_params.get("uid")
     st.session_state.username = st.query_params.get("uname")
 
 # ── API helpers ───────────────────────────────────────────────────────────────
+
 
 def _auth_headers() -> dict:
     token = st.session_state.get("token")
@@ -106,7 +169,7 @@ def api_post(path: str, body: dict, timeout: int = 60) -> dict | None:
     try:
         r = httpx.post(f"{API_BASE}{path}", json=body, headers=_auth_headers(), timeout=timeout)
         r.raise_for_status()
-        return r.json()
+        return cast(dict, r.json())
     except httpx.HTTPStatusError as e:
         st.error(f"API error {e.response.status_code}: {e.response.text}")
     except Exception as e:
@@ -118,7 +181,7 @@ def api_patch(path: str, body: dict) -> dict | None:
     try:
         r = httpx.patch(f"{API_BASE}{path}", json=body, headers=_auth_headers(), timeout=30)
         r.raise_for_status()
-        return r.json()
+        return cast(dict, r.json())
     except httpx.HTTPStatusError as e:
         st.error(f"API error {e.response.status_code}: {e.response.text}")
     except Exception as e:
@@ -128,15 +191,21 @@ def api_patch(path: str, body: dict) -> dict | None:
 
 def api_get(path: str, params: dict | None = None) -> dict | list | None:
     try:
-        r = httpx.get(f"{API_BASE}{path}", params=params, headers=_auth_headers(), timeout=10, follow_redirects=True)
+        r = httpx.get(
+            f"{API_BASE}{path}",
+            params=params,
+            headers=_auth_headers(),
+            timeout=10,
+            follow_redirects=True,
+        )
         r.raise_for_status()
-        return r.json()
+        return cast("dict | list", r.json())
     except Exception:
         return None
 
 
 def call_analyze(intent: str, log_id: int | None = None, message: str | None = None) -> dict | None:
-    body = {"intent": intent}
+    body: dict[str, Any] = {"intent": intent}
     if log_id is not None:
         body["current_log_id"] = log_id
     if message:
@@ -146,9 +215,10 @@ def call_analyze(intent: str, log_id: int | None = None, message: str | None = N
 
 # ── Shared utilities ──────────────────────────────────────────────────────────
 
+
 def migraine_free_streak(logs: list) -> int:
     streak = 0
-    for log in sorted(logs, key=lambda l: l["entry_date"], reverse=True):
+    for log in sorted(logs, key=lambda entry: entry["entry_date"], reverse=True):
         if log.get("migraine_occurred"):
             break
         streak += 1
@@ -217,18 +287,15 @@ def _parse_bedtime(profile: dict, key: str, default: time) -> time:
 
 
 def _hormonal_shows_cycle(hormonal_status: str | None) -> bool:
-    return hormonal_status in (
-        "premenopausal_regular", "premenopausal_irregular", "perimenopause"
-    )
+    return hormonal_status in ("premenopausal_regular", "premenopausal_irregular", "perimenopause")
 
 
 def _hormonal_shows_section(hormonal_status: str | None) -> bool:
-    return hormonal_status not in (
-        "postmenopausal", "not_applicable", "prefer_not_to_say", None
-    )
+    return hormonal_status not in ("postmenopausal", "not_applicable", "prefer_not_to_say", None)
 
 
 # ── Auth page ─────────────────────────────────────────────────────────────────
+
 
 def _render_auth_page():
     _, col, _ = st.columns([1, 2, 1])
@@ -242,7 +309,9 @@ def _render_auth_page():
             with st.form("login_form"):
                 username = st.text_input("Username")
                 password = st.text_input("Password", type="password")
-                submitted = st.form_submit_button("Log in", type="primary", use_container_width=True)
+                submitted = st.form_submit_button(
+                    "Log in", type="primary", use_container_width=True
+                )
             if submitted:
                 with st.spinner("Logging in..."):
                     result = api_post("/auth/login", {"username": username, "password": password})
@@ -251,7 +320,7 @@ def _render_auth_page():
                     st.session_state.username = result["username"]
                     st.session_state.token = result["token"]
                     st.query_params["token"] = result["token"]
-                    st.query_params["uid"]   = str(result["id"])
+                    st.query_params["uid"] = str(result["id"])
                     st.query_params["uname"] = result["username"]
                     st.rerun()
 
@@ -260,7 +329,9 @@ def _render_auth_page():
                 new_username = st.text_input("Choose a username")
                 new_password = st.text_input("Choose a password", type="password")
                 confirm = st.text_input("Confirm password", type="password")
-                submitted_reg = st.form_submit_button("Create account", type="primary", use_container_width=True)
+                submitted_reg = st.form_submit_button(
+                    "Create account", type="primary", use_container_width=True
+                )
             if submitted_reg:
                 if new_password != confirm:
                     st.error("Passwords don't match.")
@@ -268,13 +339,15 @@ def _render_auth_page():
                     st.error("Password must be at least 6 characters.")
                 else:
                     with st.spinner("Creating your account..."):
-                        result = api_post("/auth/register", {"username": new_username, "password": new_password})
+                        result = api_post(
+                            "/auth/register", {"username": new_username, "password": new_password}
+                        )
                     if result:
                         st.session_state.user_id = result["id"]
                         st.session_state.username = result["username"]
                         st.session_state.token = result["token"]
                         st.query_params["token"] = result["token"]
-                        st.query_params["uid"]   = str(result["id"])
+                        st.query_params["uid"] = str(result["id"])
                         st.query_params["uname"] = result["username"]
                         st.success("Account created! Setting up your profile...")
                         st.rerun()
@@ -304,7 +377,9 @@ def _render_onboarding(existing_profile: dict):
     _, col, _ = st.columns([1, 2, 1])
     with col:
         st.title("🧠 Welcome to MigraineTackler")
-        st.caption(f"Hi **{st.session_state.username}** — let's set up your profile so the app can personalise everything for you.")
+        st.caption(
+            f"Hi **{st.session_state.username}** — let's set up your profile so the app can personalise everything for you."
+        )
         st.divider()
 
         step = st.session_state.onboarding_step
@@ -325,11 +400,19 @@ def _render_onboarding(existing_profile: dict):
             st.subheader("How often do they occur?")
             frequency = st.radio(
                 "Frequency",
-                ["Less than once a month", "1–3 times a month", "About once a week", "Multiple times a week or daily"],
+                [
+                    "Less than once a month",
+                    "1–3 times a month",
+                    "About once a week",
+                    "Multiple times a week or daily",
+                ],
                 label_visibility="collapsed",
-                index=["Less than once a month", "1–3 times a month", "About once a week", "Multiple times a week or daily"].index(
-                    data.get("_freq_label", "1–3 times a month")
-                ),
+                index=[
+                    "Less than once a month",
+                    "1–3 times a month",
+                    "About once a week",
+                    "Multiple times a week or daily",
+                ].index(data.get("_freq_label", "1–3 times a month")),
             )
             st.subheader("Diagnosed subtype *(optional)*")
             subtype = st.text_input(
@@ -362,8 +445,10 @@ def _render_onboarding(existing_profile: dict):
         elif step == 2:
             _onboarding_progress()
             st.subheader("Which foods do you suspect trigger your migraines?")
-            st.caption("Select all that apply — or choose 'None identified yet' if you're not sure.")
-            trigger_options = ["None identified yet"] + _ref_foods
+            st.caption(
+                "Select all that apply — or choose 'None identified yet' if you're not sure."
+            )
+            trigger_options = ["None identified yet", *_ref_foods]
             default_triggers = data.get("_food_trigger_labels", [])
             selected = st.multiselect(
                 "Food triggers",
@@ -394,7 +479,9 @@ def _render_onboarding(existing_profile: dict):
         elif step == 3:
             _onboarding_progress()
             st.subheader("Where do you live?")
-            st.caption("Used to pull automatic weather data — barometric pressure changes are a major migraine trigger.")
+            st.caption(
+                "Used to pull automatic weather data — barometric pressure changes are a major migraine trigger."
+            )
             home_city_ob = st.text_input(
                 "Home city",
                 value=data.get("home_city", ""),
@@ -420,7 +507,8 @@ def _render_onboarding(existing_profile: dict):
             st.subheader("Typical stress level")
             stress = st.slider(
                 "Stress",
-                1, 10,
+                1,
+                10,
                 value=data.get("typical_stress_level", 5),
                 label_visibility="collapsed",
             )
@@ -435,8 +523,11 @@ def _render_onboarding(existing_profile: dict):
             )
             st.subheader("Typical daily hydration")
             hydration_oz_ob = st.slider(
-                "Daily water intake (oz)", 16, 120,
-                value=int(data.get("typical_hydration_oz") or 64), step=8,
+                "Daily water intake (oz)",
+                16,
+                120,
+                value=int(data.get("typical_hydration_oz") or 64),
+                step=8,
                 help="8 oz = 1 cup  ·  64 oz = 8 cups  ·  Most adults need 64–80 oz",
             )
 
@@ -509,7 +600,8 @@ def _render_onboarding(existing_profile: dict):
                 c1, c2 = st.columns(2)
                 cycle_length = c1.number_input(
                     "Typical cycle length (days)",
-                    min_value=0, max_value=60,
+                    min_value=0,
+                    max_value=60,
                     value=data.get("cycle_length_days") or 28,
                     step=1,
                 )
@@ -522,7 +614,12 @@ def _render_onboarding(existing_profile: dict):
                     index=cluster_options.index(cluster_map_rev.get(cluster_val, "Not sure")),
                 )
                 if cluster == "Yes":
-                    phase_options = ["Before (days 25–28)", "During (days 1–3)", "After (days 4–6)", "No clear pattern"]
+                    phase_options = [
+                        "Before (days 25–28)",
+                        "During (days 1–3)",
+                        "After (days 4–6)",
+                        "No clear pattern",
+                    ]
                     phase_val = data.get("worst_hormonal_phase", "no_pattern")
                     phase_map_rev = {
                         "before": "Before (days 25–28)",
@@ -621,18 +718,23 @@ def _render_onboarding(existing_profile: dict):
 
 # ── Log submission ────────────────────────────────────────────────────────────
 
+
 def _submit_log(payload: dict):
     slot = st.empty()
     _render_progress(slot, "💾 Saving log...", 0.35)
     result = api_post("/logs/", payload)
 
     if result:
-        st.session_state.pop("ref_foods", None)  # new food may have been logged; refresh on next rerun
+        st.session_state.pop(
+            "ref_foods", None
+        )  # new food may have been logged; refresh on next rerun
         log_id = result["log"]["id"]
         st.session_state.intake_messages = []
 
         if result.get("red_flag"):
-            st.error(f"⚠️ Red flag symptoms: {', '.join(result.get('red_flag_symptoms', []))}. Please see a doctor.")
+            st.error(
+                f"⚠️ Red flag symptoms: {', '.join(result.get('red_flag_symptoms', []))}. Please see a doctor."
+            )
         if result.get("moh_alert"):
             st.warning(
                 f"⚠️ Medication overuse alert — {result['triptan_days']} triptan days "
@@ -675,7 +777,7 @@ _profile = st.session_state.cached_profile or {}
 
 if "ref_foods" not in st.session_state:
     _rfd = api_get("/profile/me/reference-foods")
-    st.session_state.ref_foods = _rfd.get("foods", []) if _rfd else []
+    st.session_state.ref_foods = _rfd.get("foods", []) if isinstance(_rfd, dict) else []
 _ref_foods: list[str] = st.session_state.ref_foods or _ALL_FOODS
 
 if _profile.get("onboarding_complete"):
@@ -684,14 +786,27 @@ if _profile.get("onboarding_complete"):
 if not st.session_state.onboarding_complete:
     if _profile:
         st.session_state.onboarding_data = {
-            k: _profile.get(k) for k in [
-                "migraine_duration", "migraine_frequency", "migraine_subtype",
-                "known_food_triggers", "other_triggers",
+            k: _profile.get(k)
+            for k in [
+                "migraine_duration",
+                "migraine_frequency",
+                "migraine_subtype",
+                "known_food_triggers",
+                "other_triggers",
                 "home_city",
-                "typical_bedtime", "typical_wake_time", "typical_stress_level", "job_type",
-                "typical_hydration_oz", "typical_caffeine_level",
-                "hormonal_status", "cycle_length_days", "migraines_cluster_period", "worst_hormonal_phase",
-                "preventive_medications", "supplements", "acute_medications",
+                "typical_bedtime",
+                "typical_wake_time",
+                "typical_stress_level",
+                "job_type",
+                "typical_hydration_oz",
+                "typical_caffeine_level",
+                "hormonal_status",
+                "cycle_length_days",
+                "migraines_cluster_period",
+                "worst_hormonal_phase",
+                "preventive_medications",
+                "supplements",
+                "acute_medications",
             ]
         }
     _render_onboarding(_profile)
@@ -704,9 +819,36 @@ with st.sidebar:
     st.caption(f"Logged in as **{st.session_state.username}**")
     if st.button("Log out", use_container_width=True):
         st.query_params.clear()
-        for k in ["user_id", "username", "token", "intake_messages", "research_messages",
-                  "sos_pending", "sos_data", "reset_confirm", "geo_city", "onboarding_step", "onboarding_data"]:
-            st.session_state[k] = [] if k.endswith("messages") else ({} if k in ("sos_data", "onboarding_data") else (1 if k == "onboarding_step" else (False if k in ("sos_pending", "reset_confirm") else (None if k in ("user_id", "username", "token") else ""))))
+        for k in [
+            "user_id",
+            "username",
+            "token",
+            "intake_messages",
+            "research_messages",
+            "sos_pending",
+            "sos_data",
+            "reset_confirm",
+            "geo_city",
+            "onboarding_step",
+            "onboarding_data",
+        ]:
+            st.session_state[k] = (
+                []
+                if k.endswith("messages")
+                else (
+                    {}
+                    if k in ("sos_data", "onboarding_data")
+                    else (
+                        1
+                        if k == "onboarding_step"
+                        else (
+                            False
+                            if k in ("sos_pending", "reset_confirm")
+                            else (None if k in ("user_id", "username", "token") else "")
+                        )
+                    )
+                )
+            )
         st.session_state.onboarding_complete = False
         st.session_state.pop("ref_foods", None)
         st.session_state.pop("cached_profile", None)
@@ -732,7 +874,9 @@ with st.sidebar:
             result = api_post("/reset", {})
             if result:
                 for key in ["intake_messages", "research_messages", "sos_pending", "sos_data"]:
-                    st.session_state[key] = [] if key.endswith("messages") or key == "sos_data" else False
+                    st.session_state[key] = (
+                        [] if key.endswith("messages") or key == "sos_data" else False
+                    )
                 st.session_state.reset_confirm = False
                 st.success("All data reset.")
                 st.rerun()
@@ -753,7 +897,9 @@ _profile_prev_meds = _profile.get("preventive_medications") or []
 _profile_supps = _profile.get("supplements") or []
 _profile_hydration_oz = _profile.get("typical_hydration_oz") or 64.0
 _caff_level_to_mg = {"none": 0, "light": 100, "moderate": 300, "heavy": 500}
-_profile_caffeine_mg = float(_caff_level_to_mg.get(_profile.get("typical_caffeine_level") or "moderate", 200))
+_profile_caffeine_mg = float(
+    _caff_level_to_mg.get(_profile.get("typical_caffeine_level") or "moderate", 200)
+)
 _typical_sleep_hours = _calc_sleep_hours(_profile_bedtime, _profile_wake)
 
 # ── Page: Log Entry ───────────────────────────────────────────────────────────
@@ -791,7 +937,13 @@ if page == "📋 Log Entry":
 
             c1, c2 = st.columns(2)
             sleep_quality = c1.slider("Sleep quality last night", 1, 10, 6, key="slq_free")
-            stress_level  = c2.slider("Stress level today", 1, 10, _profile.get("typical_stress_level") or 3, key="stress_free")
+            stress_level = c2.slider(
+                "Stress level today",
+                1,
+                10,
+                _profile.get("typical_stress_level") or 3,
+                key="stress_free",
+            )
 
             if _known_food_triggers:
                 trigger_foods_today = st.multiselect(
@@ -809,8 +961,13 @@ if page == "📋 Log Entry":
                 horizontal=True,
             )
 
-            notes = st.text_area("Anything notable? *(optional)*", placeholder="Stress source, unusual food, fragrance, anything...")
-            submitted_free = st.form_submit_button("💾 Save", type="primary", use_container_width=True)
+            notes = st.text_area(
+                "Anything notable? *(optional)*",
+                placeholder="Stress source, unusual food, fragrance, anything...",
+            )
+            submitted_free = st.form_submit_button(
+                "💾 Save", type="primary", use_container_width=True
+            )
 
         if submitted_free:
             _hydration_map = {
@@ -818,16 +975,18 @@ if page == "📋 Log Entry":
                 "😐 Average": _profile_hydration_oz,
                 "👎 Low": round(_profile_hydration_oz * 0.55, 1),
             }
-            _submit_log({
-                "entry_date": str(entry_date),
-                "migraine_occurred": False,
-                "sleep_hours": _typical_sleep_hours,
-                "sleep_quality": sleep_quality,
-                "stress_level": stress_level,
-                "foods": trigger_foods_today or None,
-                "hydration_oz": _hydration_map[hydration_choice],
-                "notes": notes or None,
-            })
+            _submit_log(
+                {
+                    "entry_date": str(entry_date),
+                    "migraine_occurred": False,
+                    "sleep_hours": _typical_sleep_hours,
+                    "sleep_quality": sleep_quality,
+                    "stress_level": stress_level,
+                    "foods": trigger_foods_today or None,
+                    "hydration_oz": _hydration_map[hydration_choice],
+                    "notes": notes or None,
+                }
+            )
 
     # ── Migraine path ─────────────────────────────────────────────────────────
     else:
@@ -835,14 +994,20 @@ if page == "📋 Log Entry":
             st.caption("🔴 Quick capture now — add the details when you recover.")
 
             with st.form("sos_form", clear_on_submit=False):
-                entry_date  = st.date_input("Date", value=date.today(), max_value=date.today())
+                entry_date = st.date_input("Date", value=date.today(), max_value=date.today())
                 sos_time_val = datetime.now().strftime("%H:%M")
                 st.markdown("#### Pain level right now")
-                pain_level = st.select_slider(" ", options=list(range(1, 11)), value=7,
-                    format_func=lambda x: f"{'🟢' if x <= 3 else '🟡' if x <= 6 else '🔴'} {x}")
+                pain_level = st.select_slider(
+                    " ",
+                    options=list(range(1, 11)),
+                    value=7,
+                    format_func=lambda x: f"{'🟢' if x <= 3 else '🟡' if x <= 6 else '🔴'} {x}",
+                )
                 st.markdown("#### Medication taken?")
                 med_quick = st.radio(" ", _SOS_QUICK_MEDS, horizontal=True)
-                submitted_sos = st.form_submit_button("🆘 Log Now — I'll add details later", type="primary", use_container_width=True)
+                submitted_sos = st.form_submit_button(
+                    "🆘 Log Now — I'll add details later", type="primary", use_container_width=True
+                )
 
             if submitted_sos:
                 st.session_state.sos_pending = True
@@ -856,7 +1021,9 @@ if page == "📋 Log Entry":
 
         else:
             sos = st.session_state.sos_data
-            st.info(f"🔴 Migraine logged at **{sos.get('time', '')}** — pain **{sos.get('pain_level', '?')}/10**. Add a few details when you feel up to it.")
+            st.info(
+                f"🔴 Migraine logged at **{sos.get('time', '')}** — pain **{sos.get('pain_level', '?')}/10**. Add a few details when you feel up to it."
+            )
             if st.button("❌ Clear (false alarm)"):
                 st.session_state.sos_pending = False
                 st.session_state.sos_data = {}
@@ -865,39 +1032,58 @@ if page == "📋 Log Entry":
 
             # ── Auto-derive context from yesterday's log ──────────────────────
             _recent_logs = api_get("/logs", {"limit": 5}) or []
-            _yesterday_log = next((l for l in _recent_logs if not l.get("migraine_occurred")), None)
+            _yesterday_log = next(
+                (entry for entry in _recent_logs if not entry.get("migraine_occurred")), None
+            )
 
-            _auto_sleep_hours = _yesterday_log.get("sleep_hours") if _yesterday_log else _typical_sleep_hours
+            _auto_sleep_hours = (
+                _yesterday_log.get("sleep_hours") if _yesterday_log else _typical_sleep_hours
+            )
             _auto_sleep_quality = _yesterday_log.get("sleep_quality") if _yesterday_log else None
             _auto_stress = _yesterday_log.get("stress_level") if _yesterday_log else None
-            _auto_hydration = _yesterday_log.get("hydration_oz") if _yesterday_log else _profile_hydration_oz
-            _auto_caffeine = _yesterday_log.get("caffeine_mg") if _yesterday_log else _profile_caffeine_mg
+            _auto_hydration = (
+                _yesterday_log.get("hydration_oz") if _yesterday_log else _profile_hydration_oz
+            )
+            _auto_caffeine = (
+                _yesterday_log.get("caffeine_mg") if _yesterday_log else _profile_caffeine_mg
+            )
             _auto_foods = _yesterday_log.get("foods") or [] if _yesterday_log else []
 
             # ── Show auto-derived context panel ───────────────────────────────
-            with st.expander("📋 Pre-filled from your previous log — no need to re-enter", expanded=True):
+            with st.expander(
+                "📋 Pre-filled from your previous log — no need to re-enter", expanded=True
+            ):
                 _ctx_cols = st.columns(4)
                 _ctx_cols[0].metric("Sleep", f"{_auto_sleep_hours}h" if _auto_sleep_hours else "—")
-                _ctx_cols[1].metric("Sleep quality", f"{_auto_sleep_quality}/10" if _auto_sleep_quality else "—")
+                _ctx_cols[1].metric(
+                    "Sleep quality", f"{_auto_sleep_quality}/10" if _auto_sleep_quality else "—"
+                )
                 _ctx_cols[2].metric("Stress", f"{_auto_stress}/10" if _auto_stress else "—")
-                _ctx_cols[3].metric("Hydration", f"{round(_auto_hydration)} oz" if _auto_hydration else "—")
+                _ctx_cols[3].metric(
+                    "Hydration", f"{round(_auto_hydration)} oz" if _auto_hydration else "—"
+                )
                 if _auto_foods:
                     st.caption(f"Foods logged: {', '.join(_auto_foods)}")
                 if not _yesterday_log:
-                    st.caption("No recent log found — context will be estimated from your profile baseline.")
+                    st.caption(
+                        "No recent log found — context will be estimated from your profile baseline."
+                    )
 
             st.markdown("#### Just answer these — we'll handle the rest")
 
             # ── Determine dynamic question from top trigger ───────────────────
-            _sos_state = api_get("/analyze/state/me") or {}
+            _sos_state_raw = api_get("/analyze/state/me")
+            _sos_state: dict[str, Any] = _sos_state_raw if isinstance(_sos_state_raw, dict) else {}
             _confirmed = _sos_state.get("confirmed_triggers", [])
             _suspected = _sos_state.get("suspected_triggers", [])
             _all_triggers = _confirmed + _suspected
-            _dynamic_label = "Anything unusual in your environment, diet, or routine in the past 24 hours?"
+            _dynamic_label = (
+                "Anything unusual in your environment, diet, or routine in the past 24 hours?"
+            )
             if _all_triggers:
                 _top = _all_triggers[0].lower()
                 if any(k in _top for k in ["sleep", "insomnia"]):
-                    _dynamic_label = f"Sleep is one of your top triggers — did the previous night feel worse than usual, beyond what's shown above?"
+                    _dynamic_label = "Sleep is one of your top triggers — did the previous night feel worse than usual, beyond what's shown above?"
                 elif any(k in _top for k in ["caffeine", "coffee"]):
                     _dynamic_label = "Caffeine is a suspected trigger — did you skip or significantly reduce it today?"
                 elif any(k in _top for k in ["stress"]):
@@ -916,74 +1102,128 @@ if page == "📋 Log Entry":
                 for _ml in _recent_logs:
                     if _ml.get("prodrome_symptoms"):
                         _prior_prodromes += _ml["prodrome_symptoms"]
-                _prodrome_opts = ["brain_fog", "fatigue", "food_cravings", "light_sensitivity",
-                                  "mood_changes", "nausea", "neck_stiffness", "visual_aura", "yawning"]
-                _prodrome_defaults = [p for p in list(dict.fromkeys(_prior_prodromes)) if p in _prodrome_opts][:3]
-                prodrome = st.multiselect("Prodrome symptoms", _prodrome_opts,
-                                          default=_prodrome_defaults, label_visibility="collapsed")
+                _prodrome_opts = [
+                    "brain_fog",
+                    "fatigue",
+                    "food_cravings",
+                    "light_sensitivity",
+                    "mood_changes",
+                    "nausea",
+                    "neck_stiffness",
+                    "visual_aura",
+                    "yawning",
+                ]
+                _prodrome_defaults = [
+                    p for p in list(dict.fromkeys(_prior_prodromes)) if p in _prodrome_opts
+                ][:3]
+                prodrome = st.multiselect(
+                    "Prodrome symptoms",
+                    _prodrome_opts,
+                    default=_prodrome_defaults,
+                    label_visibility="collapsed",
+                )
 
                 # Q2 — Pain location + duration
                 st.markdown("**2. Pain: where and how long?**")
                 _q2_c1, _q2_c2, _q2_c3 = st.columns(3)
                 pain_level = _q2_c1.slider("Pain level", 1, 10, sos.get("pain_level", 7))
-                pain_location = _q2_c2.selectbox("Location",
-                    ["", "behind_eye", "bilateral_temporal", "frontal", "full_head", "occipital", "temporal_left", "temporal_right"])
+                pain_location = _q2_c2.selectbox(
+                    "Location",
+                    [
+                        "",
+                        "behind_eye",
+                        "bilateral_temporal",
+                        "frontal",
+                        "full_head",
+                        "occipital",
+                        "temporal_left",
+                        "temporal_right",
+                    ],
+                )
                 duration_hours = _q2_c3.number_input("Duration (hrs)", 0.0, 72.0, step=0.5)
 
                 # Q3 — Relief
                 st.markdown("**3. What helped?**")
                 _q3_c1, _q3_c2 = st.columns([2, 1])
-                relief_methods = _q3_c1.multiselect("Relief methods",
-                    ["acupressure", "breathing_exercises", "caffeine", "cold_shower", "dark_room",
-                     "heat_pack", "hydration", "ice_pack", "lying_down", "meditation", "sleep", "vomiting_relief"],
-                    label_visibility="collapsed")
-                relief_effectiveness = _q3_c2.slider("Effectiveness", 1, 10, 5, label_visibility="collapsed")
+                relief_methods = _q3_c1.multiselect(
+                    "Relief methods",
+                    [
+                        "acupressure",
+                        "breathing_exercises",
+                        "caffeine",
+                        "cold_shower",
+                        "dark_room",
+                        "heat_pack",
+                        "hydration",
+                        "ice_pack",
+                        "lying_down",
+                        "meditation",
+                        "sleep",
+                        "vomiting_relief",
+                    ],
+                    label_visibility="collapsed",
+                )
+                relief_effectiveness = _q3_c2.slider(
+                    "Effectiveness", 1, 10, 5, label_visibility="collapsed"
+                )
 
                 # Medication — pre-fill from SOS
                 sos_med = sos.get("medication")
                 _default_meds = [sos_med] if sos_med and sos_med in _MIGRAINE_MEDICATIONS else []
-                medications = st.multiselect("Medications taken", _MIGRAINE_MEDICATIONS, default=_default_meds)
+                medications = st.multiselect(
+                    "Medications taken", _MIGRAINE_MEDICATIONS, default=_default_meds
+                )
 
                 # Q4 — Dynamic trigger question
                 st.markdown(f"**4. {_dynamic_label}**")
-                dynamic_answer = st.text_input("Your answer", label_visibility="collapsed",
-                                               placeholder="Type your answer here...")
+                dynamic_answer = st.text_input(
+                    "Your answer",
+                    label_visibility="collapsed",
+                    placeholder="Type your answer here...",
+                )
 
                 # Hormonal — only if relevant
+                menstrual_cycle_day: int | None
                 if _show_cycle_day:
-                    menstrual_cycle_day = st.number_input("Cycle day *(optional)*", 0, 35, 0)
+                    menstrual_cycle_day = int(st.number_input("Cycle day *(optional)*", 0, 35, 0))
                 else:
                     menstrual_cycle_day = None
 
-                submitted_smart = st.form_submit_button("💾 Submit", type="primary", use_container_width=True)
+                submitted_smart = st.form_submit_button(
+                    "💾 Submit", type="primary", use_container_width=True
+                )
 
             if submitted_smart:
                 st.session_state.sos_pending = False
                 st.session_state.sos_data = {}
                 _notes_parts = []
                 if dynamic_answer.strip():
-                    _notes_parts.append(f"[Trigger check] {_dynamic_label} — {dynamic_answer.strip()}")
-                _submit_log({
-                    "entry_date": sos.get("date", str(date.today())),
-                    "migraine_occurred": True,
-                    "city": _profile_home_city or None,
-                    "pain_level": pain_level,
-                    "pain_location": pain_location or None,
-                    "duration_hours": duration_hours or None,
-                    "prodrome_symptoms": prodrome or None,
-                    # auto-derived from yesterday's log
-                    "sleep_hours": _auto_sleep_hours,
-                    "sleep_quality": _auto_sleep_quality,
-                    "stress_level": _auto_stress,
-                    "foods": _auto_foods or None,
-                    "hydration_oz": _auto_hydration,
-                    "caffeine_mg": _auto_caffeine,
-                    "medications": medications or None,
-                    "relief_methods": relief_methods or None,
-                    "relief_effectiveness": relief_effectiveness if relief_methods else None,
-                    "menstrual_cycle_day": menstrual_cycle_day or None,
-                    "notes": "\n".join(_notes_parts) or None,
-                })
+                    _notes_parts.append(
+                        f"[Trigger check] {_dynamic_label} — {dynamic_answer.strip()}"
+                    )
+                _submit_log(
+                    {
+                        "entry_date": sos.get("date", str(date.today())),
+                        "migraine_occurred": True,
+                        "city": _profile_home_city or None,
+                        "pain_level": pain_level,
+                        "pain_location": pain_location or None,
+                        "duration_hours": duration_hours or None,
+                        "prodrome_symptoms": prodrome or None,
+                        # auto-derived from yesterday's log
+                        "sleep_hours": _auto_sleep_hours,
+                        "sleep_quality": _auto_sleep_quality,
+                        "stress_level": _auto_stress,
+                        "foods": _auto_foods or None,
+                        "hydration_oz": _auto_hydration,
+                        "caffeine_mg": _auto_caffeine,
+                        "medications": medications or None,
+                        "relief_methods": relief_methods or None,
+                        "relief_effectiveness": relief_effectiveness if relief_methods else None,
+                        "menstrual_cycle_day": menstrual_cycle_day or None,
+                        "notes": "\n".join(_notes_parts) or None,
+                    }
+                )
                 st.rerun()
 
 # ── Page: Dashboard ───────────────────────────────────────────────────────────
@@ -992,15 +1232,17 @@ elif page == "📊 Dashboard":
     st.title("📊 Dashboard")
 
     with _progress("📊 Loading dashboard...", 0.6):
-        logs = api_get("/logs", {"limit": 60}) or []
-        state = api_get("/analyze/state/me") or {}
+        _logs_raw = api_get("/logs", {"limit": 60})
+        logs: list[Any] = _logs_raw if isinstance(_logs_raw, list) else []
+        _state_raw = api_get("/analyze/state/me")
+        state: dict[str, Any] = _state_raw if isinstance(_state_raw, dict) else {}
 
     if not logs:
         st.info("No logs yet. Start on the Log Today page.")
     else:
         last_30 = logs[:30]
-        migraine_days = [l for l in last_30 if l.get("migraine_occurred")]
-        pain_scores = [l["pain_level"] for l in migraine_days if l.get("pain_level")]
+        migraine_days = [entry for entry in last_30 if entry.get("migraine_occurred")]
+        pain_scores = [entry["pain_level"] for entry in migraine_days if entry.get("pain_level")]
         avg_pain = sum(pain_scores) / len(pain_scores) if pain_scores else 0
 
         c1, c2, c3, c4 = st.columns(4)
@@ -1010,20 +1252,31 @@ elif page == "📊 Dashboard":
         c4.metric("Migraine-free streak", f"{migraine_free_streak(logs)}d")
 
         st.divider()
-        load = api_get("/logs/toxic-load") or {}
+        _load_raw = api_get("/logs/toxic-load")
+        load: dict[str, Any] = _load_raw if isinstance(_load_raw, dict) else {}
         if load:
             risk = load.get("risk_level", "low")
             fill = load.get("fill_pct", 0.0)
             rolling = load.get("rolling_score", 0.0)
             threshold = load.get("threshold", 10.0)
             breakdown = load.get("breakdown", {})
-            risk_color = {"low": "🟢", "moderate": "🟡", "high": "🟠", "critical": "🔴"}.get(risk, "⚪")
+            risk_color = {"low": "🟢", "moderate": "🟡", "high": "🟠", "critical": "🔴"}.get(
+                risk, "⚪"
+            )
             st.subheader(f"{risk_color} Trigger Bucket  —  {risk.upper()}")
             carryover = load.get("carryover_score", 0.0)
-            st.caption(f"Rolling load: **{rolling}** / {threshold} threshold  ·  Today: {load.get('today_score', 0)}  ·  Carry-over: {carryover}")
+            st.caption(
+                f"Rolling load: **{rolling}** / {threshold} threshold  ·  Today: {load.get('today_score', 0)}  ·  Carry-over: {carryover}"
+            )
             st.progress(min(fill / 100, 1.0))
             if breakdown:
-                st.caption("Today's contributors: " + "  ·  ".join(f"**{k.replace('_', ' ')}** +{v}" for k, v in sorted(breakdown.items(), key=lambda x: -x[1])))
+                st.caption(
+                    "Today's contributors: "
+                    + "  ·  ".join(
+                        f"**{k.replace('_', ' ')}** +{v}"
+                        for k, v in sorted(breakdown.items(), key=lambda x: -x[1])
+                    )
+                )
             else:
                 st.caption("No triggers logged today.")
 
@@ -1060,8 +1313,13 @@ elif page == "📊 Dashboard":
                         claim = ev.get("claim", "")
                         source = ev.get("source", "")
                         stype = ev.get("source_type", "")
-                        _badge = {"log_history": "🗓", "onboarding": "📋", "weather": "🌦",
-                                  "agent_memory": "🧠", "stats": "📊"}.get(stype, "•")
+                        _badge = {
+                            "log_history": "🗓",
+                            "onboarding": "📋",
+                            "weather": "🌦",
+                            "agent_memory": "🧠",
+                            "stats": "📊",
+                        }.get(stype, "•")
                         st.markdown(f"{_badge} {claim} `[{source}]`")
             else:
                 st.caption("No hypothesis yet.")
@@ -1082,7 +1340,9 @@ elif page == "📊 Dashboard":
 
         st.divider()
         st.subheader("📊 Lifestyle Audit")
-        st.caption("On-demand: what's slipping, what worked, and non-medication protocols grounded in your data.")
+        st.caption(
+            "On-demand: what's slipping, what worked, and non-medication protocols grounded in your data."
+        )
         if st.button("Run Lifestyle Audit", use_container_width=True):
             with _progress("🌿 Generating your personalised plan...", 0.6):
                 _pc_result = call_analyze("lifestyle_audit")
@@ -1130,10 +1390,12 @@ elif page == "🔬 Research":
             for msg in result["messages"]:
                 st.session_state.research_messages.append({"role": "assistant", "content": msg})
         elif result is None:
-            st.session_state.research_messages.append({
-                "role": "assistant",
-                "content": "Something went wrong reaching the AI service. Check your Google API key and try again.",
-            })
+            st.session_state.research_messages.append(
+                {
+                    "role": "assistant",
+                    "content": "Something went wrong reaching the AI service. Check your Google API key and try again.",
+                }
+            )
         st.rerun()
 
 # ── Page: History ─────────────────────────────────────────────────────────────
@@ -1141,7 +1403,8 @@ elif page == "🔬 Research":
 elif page == "📅 History":
     st.title("📅 History")
     with _progress("📅 Loading history...", 0.6):
-        logs = api_get("/logs", {"limit": 30}) or []
+        _hist_raw = api_get("/logs", {"limit": 30})
+        logs = _hist_raw if isinstance(_hist_raw, list) else []
 
     if not logs:
         st.info("No logs yet.")
@@ -1156,8 +1419,12 @@ elif page == "📅 History":
                 with c1:
                     if log.get("pain_location"):
                         st.write(f"**Location:** {log['pain_location']}")
-                    st.write(f"**Sleep:** {log.get('sleep_hours', '—')} hrs · quality {log.get('sleep_quality', '—')}/10")
-                    st.write(f"**Stress:** {log.get('stress_level', '—')}/10 — {log.get('stress_source') or '—'}")
+                    st.write(
+                        f"**Sleep:** {log.get('sleep_hours', '—')} hrs · quality {log.get('sleep_quality', '—')}/10"
+                    )
+                    st.write(
+                        f"**Stress:** {log.get('stress_level', '—')}/10 — {log.get('stress_source') or '—'}"
+                    )
                     if log.get("prodrome_symptoms"):
                         st.write(f"**Prodrome:** {', '.join(log['prodrome_symptoms'])}")
                 with c2:
@@ -1165,7 +1432,9 @@ elif page == "📅 History":
                         st.write(f"**Medications:** {', '.join(log['medications'])}")
                     if log.get("foods"):
                         st.write(f"**Foods:** {', '.join(log['foods'])}")
-                    st.write(f"**Hydration:** {log.get('hydration_oz', '—')} oz · Caffeine: {log.get('caffeine_mg', '—')} mg")
+                    st.write(
+                        f"**Hydration:** {log.get('hydration_oz', '—')} oz · Caffeine: {log.get('caffeine_mg', '—')} mg"
+                    )
                 if log.get("notes"):
                     st.write(f"**Notes:** {log['notes']}")
 
@@ -1182,34 +1451,67 @@ elif page == "⚙️ Settings":
         c1, c2 = st.columns(2)
         _dur_opts = ["<1yr", "1-5yr", "5+yr"]
         _freq_opts = ["<1/month", "1-3/month", "weekly", "daily"]
-        migraine_duration = c1.selectbox("Duration", _dur_opts,
-            index=_dur_opts.index(p.get("migraine_duration", "<1yr")) if p.get("migraine_duration") in _dur_opts else 0)
-        migraine_frequency = c2.selectbox("Frequency", _freq_opts,
-            index=_freq_opts.index(p.get("migraine_frequency", "1-3/month")) if p.get("migraine_frequency") in _freq_opts else 1)
-        migraine_subtype = st.text_input("Subtype (optional)", value=p.get("migraine_subtype") or "")
+        migraine_duration = c1.selectbox(
+            "Duration",
+            _dur_opts,
+            index=_dur_opts.index(p.get("migraine_duration", "<1yr"))
+            if p.get("migraine_duration") in _dur_opts
+            else 0,
+        )
+        migraine_frequency = c2.selectbox(
+            "Frequency",
+            _freq_opts,
+            index=_freq_opts.index(p.get("migraine_frequency", "1-3/month"))
+            if p.get("migraine_frequency") in _freq_opts
+            else 1,
+        )
+        migraine_subtype = st.text_input(
+            "Subtype (optional)", value=p.get("migraine_subtype") or ""
+        )
 
         st.subheader("Location")
-        home_city_s = st.text_input("Home city", value=p.get("home_city") or "",
-                                    placeholder="e.g. Austin, TX  or  London, UK")
+        home_city_s = st.text_input(
+            "Home city",
+            value=p.get("home_city") or "",
+            placeholder="e.g. Austin, TX  or  London, UK",
+        )
 
         st.subheader("Known Triggers")
-        known_food_triggers = st.multiselect("Food triggers", _ref_foods, default=p.get("known_food_triggers") or [])
+        known_food_triggers = st.multiselect(
+            "Food triggers", _ref_foods, default=p.get("known_food_triggers") or []
+        )
         other_triggers = st.text_input("Other triggers", value=p.get("other_triggers") or "")
 
         st.subheader("Baseline")
         c1, c2, c3 = st.columns(3)
-        typical_bedtime = _time_picker_widget("Typical bedtime", value=_parse_bedtime(p, "typical_bedtime", time(22, 30)), key="s_bt")
-        typical_wake = _time_picker_widget("Typical wake time", value=_parse_bedtime(p, "typical_wake_time", time(6, 30)), key="s_wt")
-        typical_stress = c3.slider("Typical stress level", 1, 10, p.get("typical_stress_level") or 5)
+        typical_bedtime = _time_picker_widget(
+            "Typical bedtime", value=_parse_bedtime(p, "typical_bedtime", time(22, 30)), key="s_bt"
+        )
+        typical_wake = _time_picker_widget(
+            "Typical wake time",
+            value=_parse_bedtime(p, "typical_wake_time", time(6, 30)),
+            key="s_wt",
+        )
+        typical_stress = c3.slider(
+            "Typical stress level", 1, 10, p.get("typical_stress_level") or 5
+        )
         _job_opts = ["desk", "active", "mixed"]
-        job_type = st.selectbox("Job type", _job_opts,
-            index=_job_opts.index(p.get("job_type", "desk")) if p.get("job_type") in _job_opts else 0)
+        job_type = st.selectbox(
+            "Job type",
+            _job_opts,
+            index=_job_opts.index(p.get("job_type", "desk"))
+            if p.get("job_type") in _job_opts
+            else 0,
+        )
 
         st.subheader("Baseline Habits")
         c1, c2 = st.columns(2)
         typical_hydration_oz = c1.slider(
-            "Typical daily water (oz)", 16, 120,
-            value=int(p.get("typical_hydration_oz") or 64), step=8,
+            "Typical daily water (oz)",
+            16,
+            120,
+            value=int(p.get("typical_hydration_oz") or 64),
+            step=8,
             help="8 oz = 1 cup  ·  64 oz = 8 cups",
         )
         _caff_s_opts = [
@@ -1239,8 +1541,9 @@ elif page == "⚙️ Settings":
         status_keys = list(_HORMONAL_STATUSES.keys())
         current_hs_key = p.get("hormonal_status", "prefer_not_to_say")
         current_hs_label = _HORMONAL_STATUSES.get(current_hs_key, status_labels[-1])
-        sel_status_label = st.selectbox("Hormonal status", status_labels,
-            index=status_labels.index(current_hs_label))
+        sel_status_label = st.selectbox(
+            "Hormonal status", status_labels, index=status_labels.index(current_hs_label)
+        )
         sel_status_key = status_keys[status_labels.index(sel_status_label)]
 
         cycle_length_days = None
@@ -1248,47 +1551,81 @@ elif page == "⚙️ Settings":
         worst_hormonal_phase = None
         if _hormonal_shows_cycle(sel_status_key):
             c1, c2 = st.columns(2)
-            cycle_length_days = c1.number_input("Cycle length (days)", 0, 60, p.get("cycle_length_days") or 28)
+            cycle_length_days = c1.number_input(
+                "Cycle length (days)", 0, 60, p.get("cycle_length_days") or 28
+            )
             _cp_opts = ["yes", "no", "not_sure"]
-            migraines_cluster_period = c2.selectbox("Migraines cluster around period?",
+            migraines_cluster_period = c2.selectbox(
+                "Migraines cluster around period?",
                 ["Yes", "No", "Not sure"],
-                index=["yes", "no", "not_sure"].index(p.get("migraines_cluster_period", "not_sure")) if p.get("migraines_cluster_period") in _cp_opts else 2)
-            migraines_cluster_period = {"Yes": "yes", "No": "no", "Not sure": "not_sure"}[migraines_cluster_period]
+                index=["yes", "no", "not_sure"].index(p.get("migraines_cluster_period", "not_sure"))
+                if p.get("migraines_cluster_period") in _cp_opts
+                else 2,
+            )
+            migraines_cluster_period = {"Yes": "yes", "No": "no", "Not sure": "not_sure"}[
+                migraines_cluster_period
+            ]
             _wp_opts = ["before", "during", "after", "no_pattern"]
-            worst_hormonal_phase = st.selectbox("Worst hormonal phase",
+            worst_hormonal_phase = st.selectbox(
+                "Worst hormonal phase",
                 ["Before", "During", "After", "No pattern"],
-                index=["before", "during", "after", "no_pattern"].index(p.get("worst_hormonal_phase", "no_pattern")) if p.get("worst_hormonal_phase") in _wp_opts else 3)
-            worst_hormonal_phase = {"Before": "before", "During": "during", "After": "after", "No pattern": "no_pattern"}[worst_hormonal_phase]
+                index=["before", "during", "after", "no_pattern"].index(
+                    p.get("worst_hormonal_phase", "no_pattern")
+                )
+                if p.get("worst_hormonal_phase") in _wp_opts
+                else 3,
+            )
+            worst_hormonal_phase = {
+                "Before": "before",
+                "During": "during",
+                "After": "after",
+                "No pattern": "no_pattern",
+            }[worst_hormonal_phase]
 
         st.subheader("Medications")
-        preventive_medications = st.multiselect("Preventive medications", _MIGRAINE_MEDICATIONS, default=p.get("preventive_medications") or [])
-        supplements_settings = st.multiselect("Supplements", ["butterbur", "CoQ10", "feverfew", "magnesium", "melatonin", "riboflavin_B2"], default=p.get("supplements") or [])
-        acute_medications = st.multiselect("Acute medications on hand", _MIGRAINE_MEDICATIONS, default=p.get("acute_medications") or [])
+        preventive_medications = st.multiselect(
+            "Preventive medications",
+            _MIGRAINE_MEDICATIONS,
+            default=p.get("preventive_medications") or [],
+        )
+        supplements_settings = st.multiselect(
+            "Supplements",
+            ["butterbur", "CoQ10", "feverfew", "magnesium", "melatonin", "riboflavin_B2"],
+            default=p.get("supplements") or [],
+        )
+        acute_medications = st.multiselect(
+            "Acute medications on hand",
+            _MIGRAINE_MEDICATIONS,
+            default=p.get("acute_medications") or [],
+        )
 
         saved = st.form_submit_button("💾 Save changes", type="primary", use_container_width=True)
 
     if saved:
-        result = api_patch("/profile/me", {
-            "migraine_duration": migraine_duration,
-            "migraine_frequency": migraine_frequency,
-            "migraine_subtype": migraine_subtype or None,
-            "home_city": home_city_s or None,
-            "known_food_triggers": known_food_triggers or None,
-            "other_triggers": other_triggers or None,
-            "typical_bedtime": typical_bedtime.strftime("%H:%M") if typical_bedtime else None,
-            "typical_wake_time": typical_wake.strftime("%H:%M") if typical_wake else None,
-            "typical_stress_level": typical_stress,
-            "job_type": job_type,
-            "hormonal_status": sel_status_key,
-            "cycle_length_days": int(cycle_length_days) if cycle_length_days else None,
-            "migraines_cluster_period": migraines_cluster_period,
-            "worst_hormonal_phase": worst_hormonal_phase,
-            "preventive_medications": preventive_medications or None,
-            "supplements": supplements_settings or None,
-            "acute_medications": acute_medications or None,
-            "typical_hydration_oz": float(typical_hydration_oz),
-            "typical_caffeine_level": typical_caffeine_level,
-        })
+        result = api_patch(
+            "/profile/me",
+            {
+                "migraine_duration": migraine_duration,
+                "migraine_frequency": migraine_frequency,
+                "migraine_subtype": migraine_subtype or None,
+                "home_city": home_city_s or None,
+                "known_food_triggers": known_food_triggers or None,
+                "other_triggers": other_triggers or None,
+                "typical_bedtime": typical_bedtime.strftime("%H:%M") if typical_bedtime else None,
+                "typical_wake_time": typical_wake.strftime("%H:%M") if typical_wake else None,
+                "typical_stress_level": typical_stress,
+                "job_type": job_type,
+                "hormonal_status": sel_status_key,
+                "cycle_length_days": int(cycle_length_days) if cycle_length_days else None,
+                "migraines_cluster_period": migraines_cluster_period,
+                "worst_hormonal_phase": worst_hormonal_phase,
+                "preventive_medications": preventive_medications or None,
+                "supplements": supplements_settings or None,
+                "acute_medications": acute_medications or None,
+                "typical_hydration_oz": float(typical_hydration_oz),
+                "typical_caffeine_level": typical_caffeine_level,
+            },
+        )
         if result:
             st.success("Profile updated.")
             st.rerun()

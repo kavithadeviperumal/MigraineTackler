@@ -1,10 +1,10 @@
 import pytest
-from sqlmodel import create_engine, SQLModel, Session
 from fastapi.testclient import TestClient
+from sqlmodel import Session, SQLModel, create_engine
 
 import app.database as db_module
-from app.database import get_session_dep
 from app.api.main import app
+from app.database import get_session_dep
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +35,7 @@ def client(session):
     FastAPI TestClient with the DB session dependency overridden.
     Route handlers get the same in-memory session as the test body.
     """
+
     def override():
         yield session
 

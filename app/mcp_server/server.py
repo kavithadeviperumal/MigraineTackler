@@ -16,7 +16,7 @@ from contextvars import ContextVar
 from datetime import date
 
 from mcp.server.fastmcp import FastMCP
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.database import engine
 from app.models.log_entry import LogEntry
@@ -29,9 +29,18 @@ mcp = FastMCP("MigraineTackler")
 _current_user_id: ContextVar[int | None] = ContextVar("current_user_id", default=None)
 
 _FOOD_TRIGGER_SET = {
-    "alcohol", "beer", "red_wine", "chocolate", "aged_cheese",
-    "processed_meat", "msg", "artificial_sweeteners", "citrus",
-    "fermented_foods", "tyramine_rich_foods", "yeast_extract",
+    "alcohol",
+    "beer",
+    "red_wine",
+    "chocolate",
+    "aged_cheese",
+    "processed_meat",
+    "msg",
+    "artificial_sweeteners",
+    "citrus",
+    "fermented_foods",
+    "tyramine_rich_foods",
+    "yeast_extract",
 }
 
 
@@ -78,7 +87,7 @@ def get_episodes(date_from: str, date_to: str) -> list[dict]:
     medications, and notes. Includes non-migraine days where a log was recorded.
     """
     start = date.fromisoformat(date_from)
-    end   = date.fromisoformat(date_to)
+    end = date.fromisoformat(date_to)
 
     with Session(engine) as session:
         stmt = (
@@ -88,19 +97,19 @@ def get_episodes(date_from: str, date_to: str) -> list[dict]:
                 LogEntry.entry_date >= start,
                 LogEntry.entry_date <= end,
             )
-            .order_by(LogEntry.entry_date)
+            .order_by(col(LogEntry.entry_date))
         )
         entries = session.exec(stmt).all()
 
     return [
         {
-            "date":           str(e.entry_date),
-            "migraine":       e.migraine_occurred,
-            "pain_level":     e.pain_level,
+            "date": str(e.entry_date),
+            "migraine": e.migraine_occurred,
+            "pain_level": e.pain_level,
             "duration_hours": e.duration_hours,
-            "triggers":       _summarise_triggers(e),
-            "medications":    e.medications or [],
-            "notes":          e.notes or "",
+            "triggers": _summarise_triggers(e),
+            "medications": e.medications or [],
+            "notes": e.notes or "",
         }
         for e in entries
     ]
@@ -116,15 +125,13 @@ def get_triggers() -> dict:
     uid = _uid()
 
     with Session(engine) as session:
-        profile = session.exec(
-            select(UserProfile).where(UserProfile.user_id == uid)
-        ).first()
+        profile = session.exec(select(UserProfile).where(UserProfile.user_id == uid)).first()
         top_30d = top_triggers(session, n=5, days=30, user_id=uid)
 
     return {
         "known_food_triggers": (profile.known_food_triggers or []) if profile else [],
-        "other_triggers":      (profile.other_triggers or "") if profile else "",
-        "top_5_last_30_days":  top_30d,
+        "other_triggers": (profile.other_triggers or "") if profile else "",
+        "top_5_last_30_days": top_30d,
     }
 
 
@@ -229,10 +236,10 @@ def log_episode(
         return {
             "dry_run": True,
             "would_log": {
-                "date":       entry_date,
+                "date": entry_date,
                 "pain_level": pain_level,
-                "triggers":   triggers,
-                "notes":      notes,
+                "triggers": triggers,
+                "notes": notes,
             },
         }
 
@@ -242,11 +249,11 @@ def log_episode(
         session.refresh(entry)
 
     return {
-        "status":     "logged",
-        "id":         entry.id,
-        "date":       entry_date,
+        "status": "logged",
+        "id": entry.id,
+        "date": entry_date,
         "pain_level": pain_level,
-        "triggers":   triggers,
+        "triggers": triggers,
     }
 
 

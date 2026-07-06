@@ -1,14 +1,14 @@
 from datetime import date, timedelta
 from statistics import mean
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
 from sqlmodel import Session
 
-from app.graph.state import MigraineState
-from app.database import engine
-from app.services.log_service import list_recent
 from app.config import settings
+from app.database import engine
+from app.graph.state import MigraineState
+from app.services.log_service import list_recent
 
 _llm = ChatOpenAI(
     model="gpt-4o-mini",
@@ -64,7 +64,8 @@ If research_findings is empty, skip this section entirely.
 
 
 def _build_context(state: MigraineState, entries: list) -> str:
-    lst = lambda v: ", ".join(v) if v else "none identified"
+    def lst(v) -> str:
+        return ", ".join(v) if v else "none identified"
 
     # ── Lifestyle trend from recent logs ────────────────────────────────────────
     migraine_entries = [e for e in entries if e.migraine_occurred]
@@ -181,10 +182,12 @@ def run(state: MigraineState) -> dict:
     drift = _detect_drift(entries)
     context = _build_context(state, entries)
 
-    response = _llm.invoke([
-        SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=context),
-    ])
+    response = _llm.invoke(
+        [
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=context),
+        ]
+    )
 
     return {
         "current_agent": "lifestyle_audit",

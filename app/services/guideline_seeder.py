@@ -15,7 +15,7 @@ from sqlmodel import Session
 
 from app.services.rag_service import store_research_chunk
 
-SYSTEM_USER_ID = 0
+SYSTEM_USER_ID = None  # NULL = shared content, no FK owner required
 
 # Verified migraine guideline PMIDs — add more as needed
 _GUIDELINE_PMIDS = [
@@ -27,7 +27,7 @@ _GUIDELINE_PMIDS = [
 ]
 
 _ESUMMARY = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
-_EFETCH   = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+_EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
 
 def _fetch_titles(pmids: list[str]) -> dict[str, str]:
@@ -60,10 +60,10 @@ def _fetch_abstracts(pmids: list[str]) -> dict[str, str]:
             sections = []
             for p in parts:
                 label = p.get("Label", "")
-                body  = (p.text or "").strip()
+                body = (p.text or "").strip()
                 if body:
                     sections.append(f"{label}: {body}" if label else body)
-            if sections:
+            if sections and pmid_el.text:
                 out[pmid_el.text] = " ".join(sections)
         return out
     except Exception:
@@ -75,8 +75,8 @@ def seed_guidelines(session: Session) -> int:
     Fetch curated guideline abstracts from PubMed and store under SYSTEM_USER_ID.
     Returns the number of new chunks stored (0 if all already exist).
     """
-    pmids     = _GUIDELINE_PMIDS
-    titles    = _fetch_titles(pmids)
+    pmids = _GUIDELINE_PMIDS
+    titles = _fetch_titles(pmids)
     abstracts = _fetch_abstracts(pmids)
 
     stored = 0

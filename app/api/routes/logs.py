@@ -4,22 +4,22 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlmodel import Session
 
 from app.api.deps import get_current_user
+from app.api.schemas import LogCreateResponse, LogEntryCreate, LogEntryRead, ToxicLoadResponse
 from app.database import get_session_dep
 from app.models.user import User
-from app.services import log_service
-from app.services import email as email_svc
 from app.rules.rules_engine import rolling_load
-from app.api.schemas import LogEntryCreate, LogEntryRead, LogCreateResponse, ToxicLoadResponse
+from app.services import email as email_svc
+from app.services import log_service
 
 router = APIRouter()
 
 
 @router.post("/", response_model=LogCreateResponse, status_code=201)
 def create_log(
-    payload:          LogEntryCreate,
+    payload: LogEntryCreate,
     background_tasks: BackgroundTasks,
-    current_user:     User    = Depends(get_current_user),
-    session:          Session = Depends(get_session_dep),
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session_dep),
 ):
     data = payload.model_dump()
     data["user_id"] = current_user.id

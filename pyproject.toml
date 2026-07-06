@@ -42,6 +42,9 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+    "pydantic[mypy]>=2.0.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -50,3 +53,47 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes — unused imports, undefined names
+    "I",   # isort
+    "UP",  # pyupgrade — modernize syntax
+    "B",   # flake8-bugbear — common bugs (bare except, mutable defaults)
+    "S",   # bandit security rules
+    "RUF", # ruff-specific rules
+]
+ignore = [
+    "S101",   # allow assert in tests
+    "S105",   # allow string literals that look like passwords (env var names)
+    "S106",
+    "B008",   # FastAPI Depends() in function defaults is intentional DI pattern
+    "E501",   # long lines in prompt strings are intentional — don't wrap LLM prompts
+    "RUF001", # EN dash in prompt strings is intentional copy — not a code character
+    "RUF002", # EN dash in docstrings is intentional copy
+    "RUF003", # EN dash in comments is intentional copy
+    "E402",   # config.py imports os after settings init intentionally
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S"]
+"app/graph/nodes/research.py" = ["S314"]      # XML from trusted PubMed/NIH API
+"app/services/guideline_seeder.py" = ["S314"] # XML from trusted PubMed/NIH API
+"app/services/rag_service.py" = ["S608"]      # vec_str is computed floats, not user input
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true   # LangChain/LangGraph stubs are incomplete
+warn_return_any = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+warn_untyped_fields = true

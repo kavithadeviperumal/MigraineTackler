@@ -1,13 +1,15 @@
 import logging
 import threading
 import time
+
 import psycopg
-from sqlalchemy.engine import make_url
-from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.postgres import PostgresSaver
-from app.graph.state import MigraineState
-from app.graph.nodes import intake, pattern, research, root_cause, protocol, lifestyle_audit
+from langgraph.graph import END, StateGraph
+from sqlalchemy.engine import make_url
+
 from app.config import settings
+from app.graph.nodes import intake, lifestyle_audit, pattern, protocol, research, root_cause
+from app.graph.state import MigraineState
 
 
 def _psycopg_connect(database_url: str, autocommit: bool = False) -> psycopg.Connection:
@@ -25,21 +27,24 @@ def _psycopg_connect(database_url: str, autocommit: bool = False) -> psycopg.Con
 
 # ── Intent → node routing ─────────────────────────────────────────────────────
 
+_END: str = END  # langgraph END constant typed as str for mypy
+
+
 def route_intent(state: MigraineState) -> str:
-    intent = state.get("intent", "")
+    intent: str = state.get("intent", "")
 
     if state.get("moh_alert_active") or state.get("red_flag_active"):
-        return END
+        return _END
 
-    routing = {
-        "log_entry":          "intake",
-        "pattern_review":     "pattern",
-        "research_request":   "research",
-        "root_cause_review":  "root_cause",
-        "protocol_review":    "protocol",
-        "lifestyle_audit":    "lifestyle_audit",
+    routing: dict[str, str] = {
+        "log_entry": "intake",
+        "pattern_review": "pattern",
+        "research_request": "research",
+        "root_cause_review": "root_cause",
+        "protocol_review": "protocol",
+        "lifestyle_audit": "lifestyle_audit",
     }
-    return routing.get(intent, END)
+    return routing.get(intent, _END)
 
 
 def should_run_pattern(state: MigraineState) -> str:
@@ -47,7 +52,7 @@ def should_run_pattern(state: MigraineState) -> str:
     total = stats.get("total_events_logged", 0)
     if total >= 2 and total % 2 == 0:
         return "pattern"
-    return END
+    return _END
 
 
 def should_run_research(state: MigraineState) -> str:
@@ -55,11 +60,11 @@ def should_run_research(state: MigraineState) -> str:
     seen = set(state.get("research_triggers_seen", []))
     if confirmed - seen:
         return "research"
-    return END
+    return _END
 
 
 def should_run_protocol(state: MigraineState) -> str:
-    return "protocol" if state.get("protocol_refresh_recommended") else END
+    return "protocol" if state.get("protocol_refresh_recommended") else _END
 
 
 def should_run_root_cause(state: MigraineState) -> str:
@@ -69,31 +74,32 @@ def should_run_root_cause(state: MigraineState) -> str:
     seen = set(state.get("root_cause_triggers_seen", []))
     if current and current != seen:
         return "root_cause"
-    return END
+    return _END
 
 
 # ── Graph definition ──────────────────────────────────────────────────────────
 
+
 def build_graph() -> StateGraph:
     graph = StateGraph(MigraineState)
 
-    graph.add_node("intake",           intake.run)
-    graph.add_node("pattern",          pattern.run)
-    graph.add_node("research",         research.run)
-    graph.add_node("root_cause",       root_cause.run)
-    graph.add_node("protocol",         protocol.run)
+    graph.add_node("intake", intake.run)
+    graph.add_node("pattern", pattern.run)
+    graph.add_node("research", research.run)
+    graph.add_node("root_cause", root_cause.run)
+    graph.add_node("protocol", protocol.run)
     graph.add_node("lifestyle_audit", lifestyle_audit.run)
 
     graph.set_conditional_entry_point(
         route_intent,
         {
-            "intake":           "intake",
-            "pattern":          "pattern",
-            "research":         "research",
-            "root_cause":       "root_cause",
-            "protocol":         "protocol",
-            "lifestyle_audit":  "lifestyle_audit",
-            END:                END,
+            "intake": "intake",
+            "pattern": "pattern",
+            "research": "research",
+            "root_cause": "root_cause",
+            "protocol": "protocol",
+            "lifestyle_audit": "lifestyle_audit",
+            END: END,
         },
     )
 
@@ -109,13 +115,13 @@ def build_graph() -> StateGraph:
         {"root_cause": "root_cause", END: END},
     )
 
-    graph.add_edge("research",         END)
+    graph.add_edge("research", END)
     graph.add_conditional_edges(
         "root_cause",
         should_run_research,
         {"research": "research", END: END},
     )
-    graph.add_edge("protocol",        END)
+    graph.add_edge("protocol", END)
     graph.add_conditional_edges(
         "lifestyle_audit",
         should_run_protocol,
@@ -149,9 +155,15 @@ def get_graph():
                 t = time.monotonic()
                 try:
                     _graph = compile_graph()
-                    _logger.info("graph_compile_success", extra={"duration_ms": round((time.monotonic() - t) * 1000)})
+                    _logger.info(
+                        "graph_compile_success",
+                        extra={"duration_ms": round((time.monotonic() - t) * 1000)},
+                    )
                 except Exception:
-                    _logger.exception("graph_compile_failed", extra={"duration_ms": round((time.monotonic() - t) * 1000)})
+                    _logger.exception(
+                        "graph_compile_failed",
+                        extra={"duration_ms": round((time.monotonic() - t) * 1000)},
+                    )
                     raise
     return _graph
 

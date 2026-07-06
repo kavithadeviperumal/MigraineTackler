@@ -1,90 +1,90 @@
-from datetime import datetime, date
-from typing import Optional, List
+from datetime import date, datetime
+
+from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
-from sqlalchemy import Column, JSON
 
 
 class LogEntry(SQLModel, table=True):
     __tablename__ = "log_entries"
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    user_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
+    user_id: int | None = Field(default=None, foreign_key="users.id", index=True)
 
     # ── Core event ──────────────────────────────────────────────────────────
     entry_date: date = Field(index=True)
     migraine_occurred: bool = Field(default=False)
-    pain_level: Optional[int] = Field(default=None, ge=1, le=10)
-    pain_location: Optional[str] = None          # temporal_left, frontal, occipital, etc.
-    pain_quality: Optional[str] = None           # throbbing, pressure, stabbing, burning
-    duration_hours: Optional[float] = None
+    pain_level: int | None = Field(default=None, ge=1, le=10)
+    pain_location: str | None = None  # temporal_left, frontal, occipital, etc.
+    pain_quality: str | None = None  # throbbing, pressure, stabbing, burning
+    duration_hours: float | None = None
 
     # ── Prodrome / postdrome ─────────────────────────────────────────────────
-    prodrome_symptoms: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
-    postdrome_symptoms: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
+    prodrome_symptoms: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    postdrome_symptoms: list[str] | None = Field(default=None, sa_column=Column(JSON))
 
     # ── Diet ────────────────────────────────────────────────────────────────
-    foods: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
-    hydration_oz: Optional[float] = None
-    caffeine_mg: Optional[float] = None
-    alcohol_drinks: Optional[float] = None
-    meals_skipped: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
-    fasting_hours: Optional[float] = None    # longest gap without food that day
+    foods: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    hydration_oz: float | None = None
+    caffeine_mg: float | None = None
+    alcohol_drinks: float | None = None
+    meals_skipped: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    fasting_hours: float | None = None  # longest gap without food that day
 
     # ── Supplements + medications ────────────────────────────────────────────
-    supplements: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
-    medications: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
-    traditional_medicine: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
+    supplements: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    medications: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    traditional_medicine: list[str] | None = Field(default=None, sa_column=Column(JSON))
 
     # ── Sleep ────────────────────────────────────────────────────────────────
-    sleep_hours: Optional[float] = None
-    sleep_quality: Optional[int] = Field(default=None, ge=1, le=10)
-    bedtime: Optional[str] = None                # HH:MM string
-    wake_time: Optional[str] = None
+    sleep_hours: float | None = None
+    sleep_quality: int | None = Field(default=None, ge=1, le=10)
+    bedtime: str | None = None  # HH:MM string
+    wake_time: str | None = None
 
     # ── Stress + emotional ───────────────────────────────────────────────────
-    stress_level: Optional[int] = Field(default=None, ge=1, le=10)
-    stress_source: Optional[str] = None
+    stress_level: int | None = Field(default=None, ge=1, le=10)
+    stress_source: str | None = None
 
     # ── Environmental ────────────────────────────────────────────────────────
-    chemical_exposure: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
-    fragrance_exposure: Optional[bool] = None
+    chemical_exposure: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    fragrance_exposure: bool | None = None
 
     # ── Physical ─────────────────────────────────────────────────────────────
-    exercise_type: Optional[str] = None
-    exercise_minutes: Optional[int] = None
-    screen_hours: Optional[float] = None
-    neck_tension: Optional[int] = Field(default=None, ge=1, le=10)
+    exercise_type: str | None = None
+    exercise_minutes: int | None = None
+    screen_hours: float | None = None
+    neck_tension: int | None = Field(default=None, ge=1, le=10)
 
     # ── Hormonal ─────────────────────────────────────────────────────────────
-    menstrual_cycle_day: Optional[int] = None
-    hormonal_notes: Optional[str] = None
+    menstrual_cycle_day: int | None = None
+    hormonal_notes: str | None = None
 
     # ── Gut ──────────────────────────────────────────────────────────────────
-    bowel_quality: Optional[int] = Field(default=None, ge=1, le=7)   # Bristol scale
-    bloating: Optional[bool] = None
+    bowel_quality: int | None = Field(default=None, ge=1, le=7)  # Bristol scale
+    bloating: bool | None = None
 
     # ── Relief ───────────────────────────────────────────────────────────────
-    relief_methods: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
-    relief_effectiveness: Optional[int] = Field(default=None, ge=1, le=10)
+    relief_methods: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    relief_effectiveness: int | None = Field(default=None, ge=1, le=10)
 
     # ── Location (auto-resolved from coordinates or config city) ────────────
-    location_city: Optional[str] = None
+    location_city: str | None = None
 
     # ── Weather (auto-appended by weather service) ───────────────────────────
-    barometric_pressure_hpa: Optional[float] = None
-    pressure_delta_24h: Optional[float] = None
-    temperature_f: Optional[float] = None
-    humidity_pct: Optional[float] = None
-    aqi: Optional[int] = None
-    dominant_pollutant: Optional[str] = None
+    barometric_pressure_hpa: float | None = None
+    pressure_delta_24h: float | None = None
+    temperature_f: float | None = None
+    humidity_pct: float | None = None
+    aqi: int | None = None
+    dominant_pollutant: str | None = None
 
     # ── Free text + intake notes ─────────────────────────────────────────────
-    notes: Optional[str] = None
-    intake_followup_qa: Optional[List[dict]] = Field(default=None, sa_column=Column(JSON))
+    notes: str | None = None
+    intake_followup_qa: list[dict] | None = Field(default=None, sa_column=Column(JSON))
 
     # ── Novel / unusual exposures ─────────────────────────────────────────────
     # Anything consumed, applied, or encountered that is outside the user's normal
     # routine — not covered by the standard trigger list. Captured via Intake Agent
     # probing or user self-report. Used for unknown trigger correlation.
-    novel_exposures: Optional[List[str]] = Field(default=None, sa_column=Column(JSON))
+    novel_exposures: list[str] | None = Field(default=None, sa_column=Column(JSON))

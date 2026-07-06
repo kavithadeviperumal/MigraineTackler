@@ -4,18 +4,36 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from app.api.deps import get_current_user
+from app.api.schemas import UserProfileCreate, UserProfileRead, UserProfileUpdate
 from app.database import get_session_dep
+from app.models.log_entry import LogEntry
 from app.models.user import User
 from app.models.user_profile import UserProfile
-from app.models.log_entry import LogEntry
-from app.api.schemas import UserProfileCreate, UserProfileUpdate, UserProfileRead
 
 _BASE_FOODS = [
-    "aged_cheese", "alcohol", "artificial_sweeteners", "avocado",
-    "bananas", "beans_legumes", "beer", "caffeine", "chocolate",
-    "citrus", "fermented_foods", "garlic", "gluten", "MSG",
-    "nuts", "onions", "pickled_foods", "pizza", "processed_meat",
-    "red_wine", "smoked_fish", "tyramine_rich_foods", "yeast_extract",
+    "aged_cheese",
+    "alcohol",
+    "artificial_sweeteners",
+    "avocado",
+    "bananas",
+    "beans_legumes",
+    "beer",
+    "caffeine",
+    "chocolate",
+    "citrus",
+    "fermented_foods",
+    "garlic",
+    "gluten",
+    "MSG",
+    "nuts",
+    "onions",
+    "pickled_foods",
+    "pizza",
+    "processed_meat",
+    "red_wine",
+    "smoked_fish",
+    "tyramine_rich_foods",
+    "yeast_extract",
 ]
 
 router = APIRouter()
@@ -63,9 +81,7 @@ def get_reference_foods(
     ).first()
     profile_foods = (profile.known_food_triggers or []) if profile else []
 
-    logs = session.exec(
-        select(LogEntry).where(LogEntry.user_id == current_user.id)
-    ).all()
+    logs = session.exec(select(LogEntry).where(LogEntry.user_id == current_user.id)).all()
     logged_foods: set[str] = set()
     for log in logs:
         if log.foods:
