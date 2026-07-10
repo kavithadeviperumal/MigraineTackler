@@ -1,9 +1,11 @@
+import logging
 from datetime import date, timedelta
 from statistics import mean
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from sqlmodel import Session
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.config import settings
 from app.database import engine
@@ -16,6 +18,13 @@ _llm = ChatOpenAI(
     max_tokens=2500,
     temperature=0,
 )
+_logger = logging.getLogger(__name__)
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8), reraise=True)
+def _invoke(messages: list):
+    return _llm.invoke(messages)
+
 
 SYSTEM_PROMPT = """\
 You are the Lifestyle Audit Agent for MigraineTackler. You receive a user's personal migraine \
@@ -182,12 +191,24 @@ def run(state: MigraineState) -> dict:
     drift = _detect_drift(entries)
     context = _build_context(state, entries)
 
-    response = _llm.invoke(
-        [
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=context),
-        ]
-    )
+    try:
+        response = _invoke(
+            [
+                SystemMessage(content=SYSTEM_PROMPT),
+                HumanMessage(content=context),
+            ]
+        )
+    except Exception as exc:
+        _logger.warning("lifestyle_audit: LLM invoke failed: %s", exc)
+        return {
+            "current_agent": "lifestyle_audit",
+            "messages": [
+                AIMessage(
+                    content="Lifestyle audit is temporarily unavailable — AI service error. Please try again in a moment."
+                )
+            ],
+            "protocol_refresh_recommended": drift,
+        }
 
     return {
         "current_agent": "lifestyle_audit",

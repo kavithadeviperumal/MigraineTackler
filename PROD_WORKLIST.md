@@ -11,7 +11,7 @@
 - [ ] **Add `.env` to `.gitignore`** — ✅ already done; confirm before first `git init`
 - [ ] **Enforce HTTPS** — configure reverse proxy (nginx, Caddy, CloudFront) to terminate TLS; never run on plain HTTP with health data
 - [ ] **Set up database backups** — SQLite files in `data/` have no backup; add daily backup to S3/GCS and test restore
-- [ ] **Add LLM error handling** — all 5 nodes in `app/graph/nodes/` call `.invoke()` with no try/except; if Gemini is down the graph crashes
+- [x] **Add LLM error handling** — `intake.py` and `lifestyle_audit.py` now have `@retry` + try/except fallback; `pattern`, `root_cause`, `research`, `protocol` were already protected
 - [ ] **Clinical review of red-flag rules** — `app/rules/rules_engine.py` makes medical safety calls; get written sign-off before real users
 
 ---
@@ -33,7 +33,7 @@
 - [ ] Wrap multi-step DB operations in explicit transactions (log save + safety check should be atomic)
 
 ### AI / LangGraph
-- [ ] Wrap all `.invoke()` calls in try/except with fallback response strings in each node
+- [x] Wrap all `.invoke()` calls in try/except with fallback response strings in each node
 - [ ] Add configurable timeout on LLM calls (httpx timeout or `asyncio.wait_for`)
 - [ ] Implement prompt caching — patient context is re-sent on every call; 3–5x cost reduction possible
 - [ ] **Intake agent asks follow-up questions on migraine days** — violates the 30-second SOS promise; on `migraine_occurred = True` the agent should acknowledge and exit, write a `follow_up_pending` flag to state, and pick it up on the next migraine-free session instead (`app/graph/nodes/intake.py`)
