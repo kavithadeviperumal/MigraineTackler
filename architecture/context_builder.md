@@ -174,7 +174,7 @@ weather API responses, verbose free-text notes.
 
 **Batch size rules:**
 - Default: last 20 events
-- Minimum to run: 5 events (Pattern Agent is blocked below this)
+- Minimum to run: 2 events (Pattern Agent runs every even-numbered event: 2, 4, 6, …)
 - Maximum per call: 50 events (split into two calls if exceeded)
 
 **Raw fetch trigger:** Only when Orchestrator detects a "re-analysis under

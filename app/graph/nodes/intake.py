@@ -1,6 +1,9 @@
-from langchain_core.messages import HumanMessage, SystemMessage
+import logging
+
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from sqlmodel import Session
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.config import settings
 from app.database import engine
@@ -13,6 +16,13 @@ _llm = ChatOpenAI(
     max_tokens=1024,
     temperature=0,
 )
+_logger = logging.getLogger(__name__)
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8), reraise=True)
+def _invoke(messages: list):
+    return _llm.invoke(messages)
+
 
 SYSTEM_PROMPT = """\
 You are the Intake Agent for MigraineTackler. You receive a freshly saved log \
@@ -209,7 +219,18 @@ def run(state: MigraineState) -> dict:
         # Subsequent turn — user has responded to the follow-up questions
         input_messages = [SystemMessage(content=SYSTEM_PROMPT), *prior_messages]
 
-    response = _llm.invoke(input_messages)
+    try:
+        response = _invoke(input_messages)
+    except Exception as exc:
+        _logger.warning("intake: LLM invoke failed: %s", exc)
+        return {
+            "messages": [
+                AIMessage(
+                    content="Your log was saved. Follow-up questions are temporarily unavailable — AI service error. Please try again in a moment."
+                )
+            ],
+            "current_agent": "intake",
+        }
 
     return {
         "messages": [response],
