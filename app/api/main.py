@@ -1,16 +1,20 @@
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Response
-from sqlmodel import Session, col, delete
+from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+from sqlmodel import Session
 
-from app.api.deps import get_current_user
-from app.api.routes import analyze, auth, knowledge, logs, profile, shortcut
-from app.database import create_db_and_tables, engine, get_session_dep
+from app.api.routes import analyze, auth, dev, knowledge, logs, profile, shortcut
+from app.config import settings
+from app.database import create_db_and_tables, engine
 from app.mcp_server.auth_middleware import MCPAuthMiddleware
 from app.mcp_server.server import mcp
-from app.models.log_entry import LogEntry
-from app.models.user import User
+
+limiter = Limiter(key_func=get_remote_address)
 
 
 @asynccontextmanager
@@ -31,7 +35,24 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="MigraineTackler API", version="0.1.0", lifespan=lifespan)
+_is_prod = settings.app_env == "production"
+app = FastAPI(
+    title="MigraineTackler API",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(profile.router, prefix="/profile", tags=["profile"])
@@ -39,6 +60,9 @@ app.include_router(logs.router, prefix="/logs", tags=["logs"])
 app.include_router(analyze.router, prefix="/analyze", tags=["analyze"])
 app.include_router(shortcut.router, prefix="/shortcut", tags=["shortcut"])
 app.include_router(knowledge.router, prefix="/knowledge", tags=["knowledge"])
+
+if settings.app_env != "production":
+    app.include_router(dev.router, tags=["dev"])
 
 app.mount("/mcp", MCPAuthMiddleware(mcp.streamable_http_app()))
 
@@ -51,26 +75,3 @@ def health_ready(response: Response):
         response.status_code = 503
         return {"status": "not_ready", "reason": "graph compiling"}
     return {"status": "ready"}
-
-
-@app.post("/reset", tags=["dev"])
-def reset_all_data(
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session_dep),
-):
-    """Wipe the current user's log entries and agent state."""
-    session.exec(delete(LogEntry).where(col(LogEntry.user_id) == current_user.id))
-    session.commit()
-
-    thread_id = f"user_{current_user.id}"
-    import app.graph.graph as _graph_module
-
-    if _graph_module._graph is not None:
-        conn = _graph_module._graph.checkpointer.conn
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM checkpoints WHERE thread_id = %s", (thread_id,))
-            cur.execute("DELETE FROM checkpoint_writes WHERE thread_id = %s", (thread_id,))
-            cur.execute("DELETE FROM checkpoint_blobs WHERE thread_id = %s", (thread_id,))
-        conn.commit()
-
-    return {"status": "reset complete"}
