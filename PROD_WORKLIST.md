@@ -20,11 +20,12 @@
 
 ### Security
 - [ ] Move secrets to a secrets manager (AWS Secrets Manager, Parameter Store, or HashiCorp Vault) — no plaintext keys in `.env` on servers
-- [ ] Add CORS middleware to `app/api/main.py` — currently any cross-origin request is blocked or uncontrolled
-- [ ] Add rate limiting on `/auth/login` and `/auth/register` (use `slowapi`) — brute-force risk
-- [ ] Remove or gate the `/reset` endpoint behind an admin role
-- [ ] Disable `/docs` and `/redoc` in production (`app = FastAPI(docs_url=None, redoc_url=None)` behind a flag)
-- [ ] Add password strength requirements on register (min length, complexity)
+- [x] Add CORS middleware to `app/api/main.py` — currently any cross-origin request is blocked or uncontrolled
+- [ ] Set `CORS_ORIGINS=https://<your-render-domain>` in Render environment variables before go-live
+- [x] Add rate limiting on `/auth/login` and `/auth/register` (use `slowapi`) — 5 req/min per IP, in-memory; swap to Redis backend when scaling beyond single instance
+- [x] Remove or gate the `/reset` endpoint — moved to `app/api/routes/dev.py`; only mounted when `APP_ENV != production`
+- [x] Disable `/docs` and `/redoc` in production — gated behind `APP_ENV=production`
+- [x] Add password strength requirements on register — min 8 chars, 1 uppercase, 1 digit; enforced via Pydantic `field_validator` on `UserRegister`
 - [ ] Implement token refresh + logout (invalidate JWTs server-side or shorten expiry + use refresh tokens)
 
 ### Database

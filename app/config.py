@@ -47,6 +47,8 @@ class Settings(BaseSettings):
 
     # App
     log_level: str = "INFO"
+    cors_origins: list[str] = ["http://localhost:8501"]
+    app_env: str = "development"  # set to "production" in Render env vars
 
 
 settings = Settings()

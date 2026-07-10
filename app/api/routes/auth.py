@@ -1,7 +1,9 @@
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlmodel import Session, select
 
 from app.api.schemas import TokenResponse, UserLogin, UserRegister
@@ -10,6 +12,7 @@ from app.database import get_session_dep
 from app.models.user import User
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 def _create_token(user_id: int) -> str:
@@ -33,7 +36,8 @@ def _token_response(user: User) -> TokenResponse:
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
-def register(payload: UserRegister, session: Session = Depends(get_session_dep)):
+@limiter.limit("5/minute")
+def register(request: Request, payload: UserRegister, session: Session = Depends(get_session_dep)):
     existing = session.exec(select(User).where(User.username == payload.username)).first()
     if existing:
         raise HTTPException(status_code=409, detail="Username already taken")
@@ -48,7 +52,8 @@ def register(payload: UserRegister, session: Session = Depends(get_session_dep))
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: UserLogin, session: Session = Depends(get_session_dep)):
+@limiter.limit("5/minute")
+def login(request: Request, payload: UserLogin, session: Session = Depends(get_session_dep)):
     user = session.exec(select(User).where(User.username == payload.username)).first()
     if not user or not User.verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
