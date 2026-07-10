@@ -34,7 +34,7 @@ def analyze(
     thread_id = f"user_{current_user.id}"
     graph = get_graph()
     stats = build_deterministic_stats(session, user_id=current_user.id)
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 50}
 
     state_update: dict = {
         "intent": request.intent,

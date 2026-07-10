@@ -1,12 +1,12 @@
 import logging
 import xml.etree.ElementTree as ET
 from datetime import date
-from typing import cast
+from typing import Literal, cast
 
 import httpx
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session
 from tenacity import retry, retry_if_not_exception_type, stop_after_attempt, wait_exponential
 
@@ -25,6 +25,57 @@ _llm = ChatOpenAI(
     temperature=0,
 )
 _structured_llm = _llm.with_structured_output(ResearchOutput)
+
+
+class _SearchQuery(BaseModel):
+    pubmed_query: str = Field(
+        description="PubMed-optimized search query, 4-8 words, medical/MeSH terminology"
+    )
+    query_type: Literal["trigger", "mechanism", "supplement", "treatment", "tcm", "ayurveda"] = (
+        Field(description="Category of the research question")
+    )
+
+
+_reformulator_llm = _llm.with_structured_output(_SearchQuery)
+
+_REFORMULATOR_PROMPT = """\
+Convert the user's migraine research question into a PubMed-optimized search query.
+
+Rules:
+- Use medical/MeSH terminology (e.g. "barometric pressure" not "weather", "magnesium supplementation" not "taking magnesium")
+- 4–8 words maximum
+- No question words (why, how, what)
+- Include "migraine" unless already implicit in the terms
+
+Examples:
+"why does weather give me migraines?" → barometric pressure migraine pathophysiology
+"does magnesium help?" → magnesium supplementation migraine prevention
+"can acupuncture help with vestibular migraine?" → acupuncture vestibular migraine treatment
+"what is the link between hormones and migraines?" → estrogen hormonal migraine mechanism
+"""
+
+
+def _reformulate_for_pubmed(user_question: str) -> str:
+    """Return a PubMed-optimized query for free-form user input. Falls back to original on error."""
+    try:
+        result: _SearchQuery = _reformulator_llm.invoke(
+            [
+                SystemMessage(content=_REFORMULATOR_PROMPT),
+                HumanMessage(content=user_question),
+            ]
+        )
+        _logger.info(
+            "research: reformulated query",
+            extra={
+                "original": user_question,
+                "pubmed_query": result.pubmed_query,
+                "query_type": result.query_type,
+            },
+        )
+        return result.pubmed_query
+    except Exception as exc:
+        _logger.warning("research: query reformulation failed, using original — %s", exc)
+        return user_question
 
 
 @retry(
@@ -384,6 +435,10 @@ def run(state: MigraineState) -> dict:
             ],
         }
 
+    # For user-typed questions, reformulate into a PubMed-optimized query.
+    # The original question is preserved for the LLM synthesis context.
+    search_query = question if is_auto else _reformulate_for_pubmed(question)
+
     user_id = state.get("user_id")
 
     # 1. Retrieve from personal knowledge base (clinical guidelines, Ayurvedic, doctor notes,
@@ -393,14 +448,14 @@ def run(state: MigraineState) -> dict:
     if user_id:
         try:
             with Session(engine) as session:
-                kb_passages = retrieve_relevant(session, user_id, question, top_k=8)
+                kb_passages = retrieve_relevant(session, user_id, search_query, top_k=8)
         except Exception as exc:
             _logger.warning("research: KB retrieval failed for user %s: %s", user_id, exc)
             kb_failed = True
             kb_passages = []
 
     # 2. Fetch live papers from PubMed + Semantic Scholar.
-    papers = _retrieve_papers(question)
+    papers = _retrieve_papers(search_query)
 
     if not papers and not kb_passages:
         return {
