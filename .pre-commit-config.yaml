@@ -11,6 +11,7 @@ repos:
     hooks:
       - id: mypy
         args: [--ignore-missing-imports, --explicit-package-bases]
+        exclude: ^alembic/   # alembic stubs are incomplete for op/context/command
         additional_dependencies:
           - pydantic[mypy]>=2.0.0
           - sqlmodel

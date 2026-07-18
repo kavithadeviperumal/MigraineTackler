@@ -29,8 +29,8 @@
 - [ ] Implement token refresh + logout (invalidate JWTs server-side or shorten expiry + use refresh tokens)
 
 ### Database
-- [ ] Migrate from SQLite to PostgreSQL — SQLite caps at ~10 concurrent users
-- [ ] Set up Alembic for schema migrations — current approach uses raw SQL ALTER TABLE in `app/database.py:_migrate()`
+- [x] Migrate from SQLite to PostgreSQL — code already uses PostgreSQL via `DATABASE_URL`; `psycopg` + `pgvector` drivers in place
+- [x] Set up Alembic for schema migrations — `alembic/`, `alembic.ini`, `0001_initial_schema.py`; `create_db_and_tables()` now runs `alembic upgrade head`
 - [ ] Wrap multi-step DB operations in explicit transactions (log save + safety check should be atomic)
 
 ### AI / LangGraph
