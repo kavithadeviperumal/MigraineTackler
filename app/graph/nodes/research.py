@@ -59,11 +59,14 @@ Examples:
 async def _reformulate_for_pubmed(user_question: str) -> str:
     """Return a PubMed-optimized query for free-form user input. Falls back to original on error."""
     try:
-        result: _SearchQuery = await _reformulator_llm.ainvoke(
-            [
-                SystemMessage(content=_REFORMULATOR_PROMPT),
-                HumanMessage(content=user_question),
-            ]
+        result: _SearchQuery = await asyncio.wait_for(
+            _reformulator_llm.ainvoke(
+                [
+                    SystemMessage(content=_REFORMULATOR_PROMPT),
+                    HumanMessage(content=user_question),
+                ]
+            ),
+            timeout=30.0,
         )
         _logger.info(
             "research: reformulated query",
@@ -81,7 +84,13 @@ async def _reformulate_for_pubmed(user_question: str) -> str:
 
 def _fetch_kb_sync(user_id: int, query: str) -> list[dict]:
     with Session(engine) as session:
-        return retrieve_relevant(session, user_id, query, top_k=8)
+        return retrieve_relevant(
+            session,
+            user_id,
+            query,
+            top_k=8,
+            source_types=["pubmed", "semantic_scholar"],
+        )
 
 
 def _cache_abstracts_sync(user_id: int, papers: list[dict]) -> None:
@@ -105,7 +114,7 @@ def _cache_abstracts_sync(user_id: int, papers: list[dict]) -> None:
     reraise=True,
 )
 async def _invoke(messages: list):
-    return await _structured_llm.ainvoke(messages)
+    return await asyncio.wait_for(_structured_llm.ainvoke(messages), timeout=30.0)
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────

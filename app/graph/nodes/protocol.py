@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from datetime import UTC, date, datetime
@@ -28,7 +29,7 @@ _logger = logging.getLogger(__name__)
     reraise=True,
 )
 async def _invoke(messages: list):
-    return await _structured_llm.ainvoke(messages)
+    return await asyncio.wait_for(_structured_llm.ainvoke(messages), timeout=30.0)
 
 
 SYSTEM_PROMPT = """\
@@ -143,8 +144,14 @@ async def run(state: MigraineState) -> dict:
     except Exception:
         serialized_protocol = existing
 
-    return {
+    updates: dict = {
         "current_agent": "protocol",
         "current_protocol": serialized_protocol,
         "protocol_version": prior_version + 1,
     }
+
+    if result.protocol_summary:
+        updates["protocol_summary"] = result.protocol_summary
+        updates["messages"] = [AIMessage(content=result.protocol_summary)]
+
+    return updates
