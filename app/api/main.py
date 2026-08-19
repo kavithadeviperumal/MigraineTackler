@@ -1,7 +1,10 @@
+import logging
 import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
+
+_logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -19,7 +22,13 @@ limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    create_db_and_tables()
+    try:
+        _logger.info("startup: running db migrations")
+        create_db_and_tables()
+        _logger.info("startup: migrations complete")
+    except Exception:
+        _logger.exception("startup: db migration failed")
+        raise
 
     from app.graph.graph import close_graph, init_graph
 
