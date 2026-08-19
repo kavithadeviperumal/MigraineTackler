@@ -1,6 +1,7 @@
+import asyncio
 import logging
 import xml.etree.ElementTree as ET
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Literal, cast
 
 import httpx
@@ -55,10 +56,10 @@ Examples:
 """
 
 
-def _reformulate_for_pubmed(user_question: str) -> str:
+async def _reformulate_for_pubmed(user_question: str) -> str:
     """Return a PubMed-optimized query for free-form user input. Falls back to original on error."""
     try:
-        result: _SearchQuery = _reformulator_llm.invoke(
+        result: _SearchQuery = await _reformulator_llm.ainvoke(
             [
                 SystemMessage(content=_REFORMULATOR_PROMPT),
                 HumanMessage(content=user_question),
@@ -78,14 +79,33 @@ def _reformulate_for_pubmed(user_question: str) -> str:
         return user_question
 
 
+def _fetch_kb_sync(user_id: int, query: str) -> list[dict]:
+    with Session(engine) as session:
+        return retrieve_relevant(session, user_id, query, top_k=8)
+
+
+def _cache_abstracts_sync(user_id: int, papers: list[dict]) -> None:
+    with Session(engine) as session:
+        for paper in papers:
+            if paper.get("abstract") and paper.get("pmid"):
+                store_research_chunk(
+                    session=session,
+                    user_id=user_id,
+                    source_type=paper["source"].lower().replace(" ", "_"),
+                    doc_title=paper["title"],
+                    doc_id=paper["pmid"],
+                    text_body=paper["abstract"],
+                )
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=8),
     retry=retry_if_not_exception_type(ValidationError),
     reraise=True,
 )
-def _invoke(messages: list):
-    return _structured_llm.invoke(messages)
+async def _invoke(messages: list):
+    return await _structured_llm.ainvoke(messages)
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
@@ -423,7 +443,7 @@ def _validate_citations(
 # ── Node entry point ──────────────────────────────────────────────────────────
 
 
-def run(state: MigraineState) -> dict:
+async def run(state: MigraineState) -> dict:
     question, is_auto = _extract_question(state)
     if not question:
         return {
@@ -437,25 +457,23 @@ def run(state: MigraineState) -> dict:
 
     # For user-typed questions, reformulate into a PubMed-optimized query.
     # The original question is preserved for the LLM synthesis context.
-    search_query = question if is_auto else _reformulate_for_pubmed(question)
+    search_query = question if is_auto else await _reformulate_for_pubmed(question)
 
     user_id = state.get("user_id")
 
-    # 1. Retrieve from personal knowledge base (clinical guidelines, Ayurvedic, doctor notes,
-    #    and previously cached PubMed abstracts) before hitting live APIs.
+    # 1. Retrieve from personal knowledge base before hitting live APIs.
     kb_passages: list[dict] = []
     kb_failed = False
     if user_id:
         try:
-            with Session(engine) as session:
-                kb_passages = retrieve_relevant(session, user_id, search_query, top_k=8)
+            kb_passages = await asyncio.to_thread(_fetch_kb_sync, user_id, search_query)
         except Exception as exc:
             _logger.warning("research: KB retrieval failed for user %s: %s", user_id, exc)
             kb_failed = True
             kb_passages = []
 
     # 2. Fetch live papers from PubMed + Semantic Scholar.
-    papers = _retrieve_papers(search_query)
+    papers = await asyncio.to_thread(_retrieve_papers, search_query)
 
     if not papers and not kb_passages:
         return {
@@ -470,7 +488,7 @@ def run(state: MigraineState) -> dict:
     context = _build_context(papers, kb_passages, question, state)
 
     try:
-        result: ResearchOutput = _invoke(
+        result: ResearchOutput = await _invoke(
             [
                 SystemMessage(content=SYSTEM_PROMPT),
                 HumanMessage(content=context),
@@ -481,6 +499,9 @@ def run(state: MigraineState) -> dict:
             "current_agent": "research",
             "messages": [
                 AIMessage(content=f"Research synthesis failed — AI service error: {exc}.")
+            ],
+            "node_errors": [
+                {"node": "research", "error": str(exc), "timestamp": datetime.now(UTC).isoformat()}
             ],
         }
 
@@ -519,17 +540,7 @@ def run(state: MigraineState) -> dict:
     # 3. Cache new live abstracts into the knowledge base for future semantic retrieval.
     if user_id and papers:
         try:
-            with Session(engine) as session:
-                for paper in papers:
-                    if paper.get("abstract") and paper.get("pmid"):
-                        store_research_chunk(
-                            session=session,
-                            user_id=user_id,
-                            source_type=paper["source"].lower().replace(" ", "_"),
-                            doc_title=paper["title"],
-                            doc_id=paper["pmid"],
-                            text_body=paper["abstract"],
-                        )
+            await asyncio.to_thread(_cache_abstracts_sync, user_id, papers)
         except Exception as exc:
             _logger.warning("research: abstract cache write failed for user %s: %s", user_id, exc)
 

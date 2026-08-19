@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlmodel import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, user_limiter
 from app.database import get_session_dep
 from app.models.user import User
 from app.services.rag_service import delete_source, ingest_pdf, list_sources
@@ -12,7 +12,9 @@ _VALID_SOURCE_TYPES = {"doctor_note"}
 
 
 @router.post("/upload")
+@user_limiter.limit("5/hour")
 async def upload_knowledge(
+    request: Request,
     file: UploadFile = File(...),
     source_type: str = Form(...),
     title: str = Form(...),

@@ -1,33 +1,37 @@
 import logging
-import threading
 import time
 
-import psycopg
-from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, StateGraph
+from psycopg.conninfo import make_conninfo
+from psycopg_pool import AsyncConnectionPool
 from sqlalchemy.engine import make_url
 
 from app.config import settings
 from app.graph.nodes import intake, lifestyle_audit, pattern, protocol, research, root_cause
 from app.graph.state import MigraineState
 
+_logger = logging.getLogger(__name__)
+_graph = None
+_pool: AsyncConnectionPool | None = None
 
-def _psycopg_connect(database_url: str, autocommit: bool = False) -> psycopg.Connection:
-    """Parse DB URL via SQLAlchemy (handles special chars in passwords) and connect."""
+
+def _make_conninfo(database_url: str) -> str:
     u = make_url(database_url)
-    return psycopg.connect(
-        host=u.host,
-        port=u.port or 5432,
-        dbname=u.database,
-        user=u.username,
-        password=u.password,
-        autocommit=autocommit,
+    return str(
+        make_conninfo(
+            host=u.host,
+            port=u.port or 5432,
+            dbname=u.database,
+            user=u.username,
+            password=str(u.password) if u.password else None,
+        )
     )
 
 
 # ── Intent → node routing ─────────────────────────────────────────────────────
 
-_END: str = END  # langgraph END constant typed as str for mypy
+_END: str = END
 
 
 def route_intent(state: MigraineState) -> str:
@@ -131,40 +135,40 @@ def build_graph() -> StateGraph:
     return graph
 
 
-def compile_graph():
-    graph = build_graph()
-    conn = _psycopg_connect(settings.database_url, autocommit=True)
-    conn.execute("SET statement_timeout = 0")  # allow CREATE INDEX CONCURRENTLY to finish
-    checkpointer = PostgresSaver(conn)
-    checkpointer.setup()
-    return graph.compile(checkpointer=checkpointer)
+# ── Lifecycle — called from FastAPI lifespan ──────────────────────────────────
 
 
-# Lazy singleton — thread-safe; warmup thread and request handler may race on first call.
-_graph = None
-_graph_lock = threading.Lock()
-_logger = logging.getLogger(__name__)
+async def init_graph() -> None:
+    global _graph, _pool
+    _logger.info("graph_compile_start")
+    t = time.monotonic()
+    try:
+        conninfo = _make_conninfo(settings.database_url)
+        _pool = AsyncConnectionPool(conninfo=conninfo, min_size=1, max_size=10, open=False)
+        await _pool.open()
+        checkpointer = AsyncPostgresSaver(_pool)
+        await checkpointer.setup()
+        _graph = build_graph().compile(checkpointer=checkpointer)
+        _logger.info(
+            "graph_compile_success",
+            extra={"duration_ms": round((time.monotonic() - t) * 1000)},
+        )
+    except Exception:
+        _logger.exception(
+            "graph_compile_failed",
+            extra={"duration_ms": round((time.monotonic() - t) * 1000)},
+        )
+        raise
+
+
+async def close_graph() -> None:
+    global _pool
+    if _pool:
+        await _pool.close()
+        _pool = None
 
 
 def get_graph():
-    global _graph
-    if _graph is None:
-        with _graph_lock:
-            if _graph is None:
-                _logger.info("graph_compile_start")
-                t = time.monotonic()
-                try:
-                    _graph = compile_graph()
-                    _logger.info(
-                        "graph_compile_success",
-                        extra={"duration_ms": round((time.monotonic() - t) * 1000)},
-                    )
-                except Exception:
-                    _logger.exception(
-                        "graph_compile_failed",
-                        extra={"duration_ms": round((time.monotonic() - t) * 1000)},
-                    )
-                    raise
     return _graph
 
 

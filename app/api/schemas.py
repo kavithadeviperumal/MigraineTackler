@@ -35,12 +35,17 @@ class UserRead(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    token: str
+    token: str  # short-lived access JWT (15 min)
+    refresh_token: str  # long-lived opaque token (30 days)
     id: int
     username: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 
 # ── User Profile ──────────────────────────────────────────────────────────────
