@@ -27,7 +27,13 @@ _structured_llm = _llm.with_structured_output(RootCauseOutput)
 
 def _fetch_kb_sync(user_id: int, query: str) -> list[dict]:
     with Session(engine) as session:
-        return retrieve_relevant(session, user_id, query, top_k=6)
+        return retrieve_relevant(
+            session,
+            user_id,
+            query,
+            top_k=6,
+            source_types=["doctor_note", "clinical_guideline"],
+        )
 
 
 @retry(
@@ -37,7 +43,7 @@ def _fetch_kb_sync(user_id: int, query: str) -> list[dict]:
     reraise=True,
 )
 async def _invoke(messages: list):
-    return await _structured_llm.ainvoke(messages)
+    return await asyncio.wait_for(_structured_llm.ainvoke(messages), timeout=30.0)
 
 
 SYSTEM_PROMPT = """\

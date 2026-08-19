@@ -16,7 +16,7 @@ def _engine_url() -> str:
     return url
 
 
-engine = create_engine(_engine_url(), echo=False)
+engine = create_engine(_engine_url(), echo=False, pool_size=10, max_overflow=20)
 
 
 def create_db_and_tables() -> None:

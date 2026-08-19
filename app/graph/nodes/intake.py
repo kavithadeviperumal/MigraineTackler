@@ -28,7 +28,7 @@ def _fetch_entry_sync(log_id: int) -> LogEntry | None:
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8), reraise=True)
 async def _invoke(messages: list):
-    return await _llm.ainvoke(messages)
+    return await asyncio.wait_for(_llm.ainvoke(messages), timeout=30.0)
 
 
 SYSTEM_PROMPT = """\
@@ -211,8 +211,30 @@ async def run(state: MigraineState) -> dict:
     if entry is None:
         return {"current_agent": "intake"}
 
+    # SOS short-circuit: never interrogate the user during a migraine.
+    # Set follow_up_pending so the next migraine-free intake picks up the thread.
+    if entry.migraine_occurred:
+        return {
+            "current_agent": "intake",
+            "follow_up_pending": True,
+            "messages": [
+                AIMessage(
+                    content="Logged. Rest up — no questions from me right now. We'll follow up when you're feeling better."
+                )
+            ],
+        }
+
     stats = state.get("deterministic_stats", {})
     context = _build_log_context(entry, stats, state)
+
+    # If the previous session was a migraine day, carry the pending follow-up
+    # into today's context so the agent covers it alongside today's log.
+    if state.get("follow_up_pending"):
+        context += (
+            "\n\nNOTE: A follow-up from the user's most recent migraine entry is pending. "
+            "After your questions about today's log (if any), include 1 brief follow-up question "
+            "about that migraine based on their known trigger patterns above."
+        )
 
     prior_messages = list(state.get("messages", []))
     if not prior_messages:
@@ -242,4 +264,5 @@ async def run(state: MigraineState) -> dict:
     return {
         "messages": [response],
         "current_agent": "intake",
+        "follow_up_pending": False,
     }

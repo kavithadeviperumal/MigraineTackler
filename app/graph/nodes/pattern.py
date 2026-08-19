@@ -36,7 +36,7 @@ def _fetch_entries_sync(since: date) -> list:
     reraise=True,
 )
 async def _invoke(messages: list):
-    return await _structured_llm.ainvoke(messages)
+    return await asyncio.wait_for(_structured_llm.ainvoke(messages), timeout=30.0)
 
 
 SYSTEM_PROMPT = """\
@@ -177,11 +177,19 @@ async def run(state: MigraineState) -> dict:
         "session_history_summary": result.pattern_summary,
     }
 
-    if result.confirmed_triggers:
-        updates["confirmed_triggers"] = result.confirmed_triggers
-    if result.suspected_triggers:
-        updates["suspected_triggers"] = result.suspected_triggers
-    if result.unknown_trigger_candidates:
-        updates["unknown_trigger_candidates"] = result.unknown_trigger_candidates
+    existing_confirmed = set(state.get("confirmed_triggers", []))
+    existing_suspected = set(state.get("suspected_triggers", []))
+    existing_unknown = set(state.get("unknown_trigger_candidates", []))
+
+    new_confirmed = [t for t in result.confirmed_triggers if t not in existing_confirmed]
+    new_suspected = [t for t in result.suspected_triggers if t not in existing_suspected]
+    new_unknown = [t for t in result.unknown_trigger_candidates if t not in existing_unknown]
+
+    if new_confirmed:
+        updates["confirmed_triggers"] = new_confirmed
+    if new_suspected:
+        updates["suspected_triggers"] = new_suspected
+    if new_unknown:
+        updates["unknown_trigger_candidates"] = new_unknown
 
     return updates
