@@ -92,6 +92,7 @@ class MigraineState(TypedDict, total=False):
     migraine_subtype: str
     protocol_version: int
     current_protocol: dict  # serialised Protocol model
+    protocol_summary: str  # plain-language explanation of current protocol strategy
     session_history_summary: str
 
     # ── Identity (set once on first session, never changes) ─────────────────────
@@ -104,6 +105,9 @@ class MigraineState(TypedDict, total=False):
     red_flag_active: bool
     moh_alert_active: bool
     protocol_refresh_recommended: bool
+    follow_up_pending: (
+        bool  # True when intake was skipped on a migraine day; cleared on next migraine-free intake
+    )
 
     # ── Error tracking (appended by any node that catches an exception) ────────
     node_errors: Annotated[list[NodeError], operator.add]
@@ -131,6 +135,7 @@ def default_state() -> dict:
         "migraine_subtype": "",
         "protocol_version": 0,
         "current_protocol": {},
+        "protocol_summary": "",
         "session_history_summary": "",
         "current_log_id": None,
         "deterministic_stats": DeterministicStats().model_dump(),
@@ -138,6 +143,7 @@ def default_state() -> dict:
         "red_flag_active": False,
         "moh_alert_active": False,
         "protocol_refresh_recommended": False,
+        "follow_up_pending": False,
         "node_errors": [],
         "messages": [],
     }

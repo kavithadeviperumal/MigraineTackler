@@ -336,6 +336,7 @@ def retrieve_relevant(
     query: str,
     top_k: int = 8,
     min_similarity: float = 0.55,
+    source_types: list[str] | None = None,
 ) -> list[dict]:
     """
     Return aggregated passages most semantically relevant to the query.
@@ -343,6 +344,10 @@ def retrieve_relevant(
     Chunks are retrieved by cosine similarity, then grouped by document and
     assembled into coherent passages (gap-filled up to _MAX_GAP intermediate
     chunks, joined in chunk_index order).
+
+    source_types: when provided, restricts retrieval to those source_type values
+    (e.g. ["doctor_note", "clinical_guideline"] for root cause,
+     ["pubmed", "semantic_scholar"] for research).
     """
     try:
         query_vec = _embed(query)
@@ -351,12 +356,20 @@ def retrieve_relevant(
 
     vec_str = _vec_literal(query_vec)
 
+    if source_types:
+        escaped = [st.replace("'", "''") for st in source_types]
+        in_list = ", ".join(f"'{s}'" for s in escaped)
+        source_filter = f"AND source_type IN ({in_list})"
+    else:
+        source_filter = ""
+
     sql = text(f"""
         SELECT user_id, doc_id, source_type, doc_title, chunk_index,
                1 - (embedding <=> '{vec_str}'::vector) AS similarity
         FROM knowledge_chunks
         WHERE (user_id = :user_id OR user_id IS NULL)
           AND 1 - (embedding <=> '{vec_str}'::vector) >= :min_sim
+          {source_filter}
         ORDER BY embedding <=> '{vec_str}'::vector
         LIMIT :top_k
     """)

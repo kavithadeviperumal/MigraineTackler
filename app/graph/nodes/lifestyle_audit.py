@@ -29,7 +29,7 @@ def _fetch_entries_sync(since: date) -> list:
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8), reraise=True)
 async def _invoke(messages: list):
-    return await _llm.ainvoke(messages)
+    return await asyncio.wait_for(_llm.ainvoke(messages), timeout=30.0)
 
 
 SYSTEM_PROMPT = """\
