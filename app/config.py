@@ -33,7 +33,8 @@ class Settings(BaseSettings):
 
     # Auth
     jwt_secret_key: str = "dev-secret-change-me-in-production"
-    jwt_expire_days: int = 30
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 30
 
     # Apple Shortcuts
     shortcuts_api_key: str = ""

@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -27,8 +27,8 @@ _logger = logging.getLogger(__name__)
     retry=retry_if_not_exception_type(ValidationError),
     reraise=True,
 )
-def _invoke(messages: list):
-    return _structured_llm.invoke(messages)
+async def _invoke(messages: list):
+    return await _structured_llm.ainvoke(messages)
 
 
 SYSTEM_PROMPT = """\
@@ -101,14 +101,14 @@ def _build_context(state: MigraineState) -> str:
     return "\n".join(lines)
 
 
-def run(state: MigraineState) -> dict:
+async def run(state: MigraineState) -> dict:
     context = _build_context(state)
 
     existing = state.get("current_protocol", {})
     prior_version = existing.get("version", 0)
 
     try:
-        result: ProtocolOutput = _invoke(
+        result: ProtocolOutput = await _invoke(
             [
                 SystemMessage(content=SYSTEM_PROMPT),
                 HumanMessage(content=context),
@@ -123,6 +123,9 @@ def run(state: MigraineState) -> dict:
                 AIMessage(
                     content="Protocol generation failed — AI service error. Your existing plan remains active."
                 )
+            ],
+            "node_errors": [
+                {"node": "protocol", "error": str(exc), "timestamp": datetime.now(UTC).isoformat()}
             ],
         }
 

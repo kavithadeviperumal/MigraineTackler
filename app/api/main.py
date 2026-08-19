@@ -21,9 +21,9 @@ limiter = Limiter(key_func=get_remote_address)
 async def lifespan(app: FastAPI):
     create_db_and_tables()
 
-    from app.graph.graph import get_graph
+    from app.graph.graph import close_graph, init_graph
 
-    threading.Thread(target=get_graph, daemon=True).start()
+    await init_graph()
 
     def _seed_guidelines():
         from app.services.guideline_seeder import seed_guidelines
@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_seed_guidelines, daemon=True).start()
     yield
+    await close_graph()
 
 
 _is_prod = settings.app_env == "production"

@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from datetime import UTC, datetime
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -23,14 +25,19 @@ _llm = ChatOpenAI(
 _structured_llm = _llm.with_structured_output(RootCauseOutput)
 
 
+def _fetch_kb_sync(user_id: int, query: str) -> list[dict]:
+    with Session(engine) as session:
+        return retrieve_relevant(session, user_id, query, top_k=6)
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=8),
     retry=retry_if_not_exception_type(ValidationError),
     reraise=True,
 )
-def _invoke(messages: list):
-    return _structured_llm.invoke(messages)
+async def _invoke(messages: list):
+    return await _structured_llm.ainvoke(messages)
 
 
 SYSTEM_PROMPT = """\
@@ -142,7 +149,7 @@ def _validate_grounding(result: RootCauseOutput) -> RootCauseOutput:
     return result
 
 
-def run(state: MigraineState) -> dict:
+async def run(state: MigraineState) -> dict:
     kb_passages: list[dict] = []
     kb_failed = False
     user_id = state.get("user_id")
@@ -152,8 +159,7 @@ def run(state: MigraineState) -> dict:
         if confirmed or suspected:
             query = "migraine root cause mechanism " + ", ".join(confirmed + suspected)
             try:
-                with Session(engine) as session:
-                    kb_passages = retrieve_relevant(session, user_id, query, top_k=6)
+                kb_passages = await asyncio.to_thread(_fetch_kb_sync, user_id, query)
             except Exception as exc:
                 _logger.warning("root_cause: KB retrieval failed for user %s: %s", user_id, exc)
                 kb_failed = True
@@ -162,7 +168,7 @@ def run(state: MigraineState) -> dict:
     context = _build_context(state, kb_passages)
 
     try:
-        result: RootCauseOutput = _invoke(
+        result: RootCauseOutput = await _invoke(
             [
                 SystemMessage(content=SYSTEM_PROMPT),
                 HumanMessage(content=context),
@@ -175,6 +181,13 @@ def run(state: MigraineState) -> dict:
                 AIMessage(
                     content=f"Root cause analysis failed — AI service error: {exc}. Your data has been saved; try again in a moment."
                 )
+            ],
+            "node_errors": [
+                {
+                    "node": "root_cause",
+                    "error": str(exc),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
             ],
         }
 

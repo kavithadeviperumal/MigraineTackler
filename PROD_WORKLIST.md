@@ -45,6 +45,8 @@
 **Structural**
 - [ ] **No Orchestrator node exists** — spec describes an Orchestrator LLM agent that routes intent and assembles context packets for downstream agents; actual implementation uses pure Python conditional edge functions (`route_intent`, `should_run_pattern`, etc. in `app/graph/graph.py`) — no LLM involved in routing; update `architecture/context_builder.md` to reflect this or build toward the spec
 - [ ] **No token budget enforcement** — spec defines per-agent token ceilings (Orchestrator <1k, Pattern <5k, etc.) with compaction fallback rules; no node measures or enforces token counts before invoking the LLM
+- [ ] **No sliding window on conversation history** — `MigraineState.messages` accumulates unbounded across turns; no mechanism trims oldest turns when history grows; add a max-turn cap or token-based window before passing history to any node
+- [ ] **No token-pressure summarization** — Pattern Agent produces `session_history_summary` unconditionally but it is not triggered by token pressure; when context exceeds budget, older log entries should be compressed into a running summary rather than dropped or truncated raw
 
 **Pattern Agent** (`app/graph/nodes/pattern.py`)
 - [ ] **Batch size exceeds spec** — spec: default 20 events, max 50, split into two calls if exceeded; actual: `list_recent(limit=60, since=60 days)` fetches up to 60 records with no split logic

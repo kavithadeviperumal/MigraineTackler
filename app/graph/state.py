@@ -5,6 +5,12 @@ from langgraph.graph import add_messages
 from pydantic import BaseModel, Field
 
 
+class NodeError(TypedDict):
+    node: str  # which node failed
+    error: str  # exception message
+    timestamp: str  # UTC ISO-8601
+
+
 class DeterministicStats(BaseModel):
     migraine_free_streak_days: int = 0
     migraine_days_last_30d: int = 0
@@ -99,6 +105,9 @@ class MigraineState(TypedDict, total=False):
     moh_alert_active: bool
     protocol_refresh_recommended: bool
 
+    # ── Error tracking (appended by any node that catches an exception) ────────
+    node_errors: Annotated[list[NodeError], operator.add]
+
     # ── Conversation (LangGraph manages append + dedup) ───────────────────────
     messages: Annotated[list, add_messages]
 
@@ -129,5 +138,6 @@ def default_state() -> dict:
         "red_flag_active": False,
         "moh_alert_active": False,
         "protocol_refresh_recommended": False,
+        "node_errors": [],
         "messages": [],
     }

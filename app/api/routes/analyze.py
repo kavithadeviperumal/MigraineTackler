@@ -1,33 +1,36 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from langchain_core.messages import AIMessage, HumanMessage
 from sqlmodel import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, user_limiter
 from app.api.schemas import AnalyzeRequest, AnalyzeResponse
 from app.database import get_session_dep
 from app.graph.graph import get_graph
 from app.graph.state import default_state
 from app.models.user import User
-from app.rules.rules_engine import build_deterministic_stats
+from app.rules.rules_engine import build_deterministic_stats, check_red_flags
+from app.services import log_service
 
 router = APIRouter()
 
 
 @router.get("/state/me")
-def get_state(current_user: User = Depends(get_current_user)):
+async def get_state(current_user: User = Depends(get_current_user)):
     thread_id = f"user_{current_user.id}"
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}}
     try:
-        snapshot = graph.get_state(config)
+        snapshot = await graph.aget_state(config)
         return snapshot.values or {}
     except Exception:
         return {}
 
 
 @router.post("", response_model=AnalyzeResponse)
-def analyze(
-    request: AnalyzeRequest,
+@user_limiter.limit("20/minute")
+async def analyze(
+    request: Request,
+    body: AnalyzeRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session_dep),
 ):
@@ -37,17 +40,21 @@ def analyze(
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 50}
 
     state_update: dict = {
-        "intent": request.intent,
+        "intent": body.intent,
         "deterministic_stats": stats.model_dump(),
         "user_id": current_user.id,
     }
-    if request.current_log_id is not None:
-        state_update["current_log_id"] = request.current_log_id
-    if request.message:
-        state_update["messages"] = [HumanMessage(content=request.message)]
+    if body.current_log_id is not None:
+        state_update["current_log_id"] = body.current_log_id
+        entry = log_service.get(session, body.current_log_id)
+        if entry is not None:
+            red_flag, _ = check_red_flags(entry.notes or "", entry.prodrome_symptoms)
+            state_update["red_flag_active"] = red_flag
+    if body.message:
+        state_update["messages"] = [HumanMessage(content=body.message)]
 
     try:
-        checkpoint = graph.get_state(config)
+        checkpoint = await graph.aget_state(config)
         is_new_thread = checkpoint.values == {}
     except Exception:
         is_new_thread = True
@@ -57,7 +64,7 @@ def analyze(
     else:
         full_state = state_update
 
-    result = graph.invoke(full_state, config=config)
+    result = await graph.ainvoke(full_state, config=config)
 
     ai_messages = [msg.content for msg in result.get("messages", []) if isinstance(msg, AIMessage)]
 

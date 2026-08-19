@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from statistics import mean
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -21,9 +22,14 @@ _llm = ChatOpenAI(
 _logger = logging.getLogger(__name__)
 
 
+def _fetch_entries_sync(since: date) -> list:
+    with Session(engine) as session:
+        return list_recent(session, limit=60, since=since)
+
+
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8), reraise=True)
-def _invoke(messages: list):
-    return _llm.invoke(messages)
+async def _invoke(messages: list):
+    return await _llm.ainvoke(messages)
 
 
 SYSTEM_PROMPT = """\
@@ -183,16 +189,15 @@ def _detect_drift(entries: list) -> bool:
     return signals >= 2
 
 
-def run(state: MigraineState) -> dict:
+async def run(state: MigraineState) -> dict:
     since = date.today() - timedelta(days=30)
-    with Session(engine) as session:
-        entries = list_recent(session, limit=60, since=since)
+    entries = await asyncio.to_thread(_fetch_entries_sync, since)
 
     drift = _detect_drift(entries)
     context = _build_context(state, entries)
 
     try:
-        response = _invoke(
+        response = await _invoke(
             [
                 SystemMessage(content=SYSTEM_PROMPT),
                 HumanMessage(content=context),
@@ -208,6 +213,13 @@ def run(state: MigraineState) -> dict:
                 )
             ],
             "protocol_refresh_recommended": drift,
+            "node_errors": [
+                {
+                    "node": "lifestyle_audit",
+                    "error": str(exc),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            ],
         }
 
     return {

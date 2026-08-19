@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -23,14 +24,19 @@ _structured_llm = _llm.with_structured_output(PatternOutput)
 _logger = logging.getLogger(__name__)
 
 
+def _fetch_entries_sync(since: date) -> list:
+    with Session(engine) as session:
+        return list_recent(session, limit=60, since=since)
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=8),
     retry=retry_if_not_exception_type(ValidationError),
     reraise=True,
 )
-def _invoke(messages: list):
-    return _structured_llm.invoke(messages)
+async def _invoke(messages: list):
+    return await _structured_llm.ainvoke(messages)
 
 
 SYSTEM_PROMPT = """\
@@ -138,16 +144,15 @@ def _format_entries(entries: list) -> str:
     return "\n".join(lines)
 
 
-def run(state: MigraineState) -> dict:
+async def run(state: MigraineState) -> dict:
     since = date.today() - timedelta(days=60)
 
-    with Session(engine) as session:
-        entries = list_recent(session, limit=60, since=since)
+    entries = await asyncio.to_thread(_fetch_entries_sync, since)
 
     context = _format_entries(entries)
 
     try:
-        result: PatternOutput = _invoke(
+        result: PatternOutput = await _invoke(
             [
                 SystemMessage(content=SYSTEM_PROMPT),
                 HumanMessage(content=context),
@@ -161,6 +166,9 @@ def run(state: MigraineState) -> dict:
                 AIMessage(
                     content="Pattern analysis failed — AI service error. Please try again in a moment."
                 )
+            ],
+            "node_errors": [
+                {"node": "pattern", "error": str(exc), "timestamp": datetime.now(UTC).isoformat()}
             ],
         }
 

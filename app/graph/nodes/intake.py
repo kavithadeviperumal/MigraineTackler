@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from datetime import UTC, datetime
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -19,9 +21,14 @@ _llm = ChatOpenAI(
 _logger = logging.getLogger(__name__)
 
 
+def _fetch_entry_sync(log_id: int) -> LogEntry | None:
+    with Session(engine) as session:
+        return session.get(LogEntry, log_id)
+
+
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8), reraise=True)
-def _invoke(messages: list):
-    return _llm.invoke(messages)
+async def _invoke(messages: list):
+    return await _llm.ainvoke(messages)
 
 
 SYSTEM_PROMPT = """\
@@ -194,13 +201,12 @@ def _build_log_context(entry: LogEntry, stats: dict, state: MigraineState) -> st
     return "\n".join(lines)
 
 
-def run(state: MigraineState) -> dict:
+async def run(state: MigraineState) -> dict:
     log_id = state.get("current_log_id")
     if not log_id:
         return {"current_agent": "intake"}
 
-    with Session(engine) as session:
-        entry = session.get(LogEntry, log_id)
+    entry = await asyncio.to_thread(_fetch_entry_sync, log_id)
 
     if entry is None:
         return {"current_agent": "intake"}
@@ -210,17 +216,15 @@ def run(state: MigraineState) -> dict:
 
     prior_messages = list(state.get("messages", []))
     if not prior_messages:
-        # First turn — inject the saved log as the human message
         input_messages = [
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(content=context),
         ]
     else:
-        # Subsequent turn — user has responded to the follow-up questions
         input_messages = [SystemMessage(content=SYSTEM_PROMPT), *prior_messages]
 
     try:
-        response = _invoke(input_messages)
+        response = await _invoke(input_messages)
     except Exception as exc:
         _logger.warning("intake: LLM invoke failed: %s", exc)
         return {
@@ -230,6 +234,9 @@ def run(state: MigraineState) -> dict:
                 )
             ],
             "current_agent": "intake",
+            "node_errors": [
+                {"node": "intake", "error": str(exc), "timestamp": datetime.now(UTC).isoformat()}
+            ],
         }
 
     return {

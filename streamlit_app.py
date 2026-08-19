@@ -119,6 +119,7 @@ _SESSION_DEFAULTS: dict[str, Any] = {
     "user_id": None,
     "username": None,
     "token": None,
+    "refresh_token": None,  # never put in query params — session-only
     "intake_messages": [],
     "research_messages": [],
     "sos_pending": False,
@@ -149,6 +150,83 @@ def _auth_headers() -> dict:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+_MAX_RETRIES = 3
+
+
+def _force_logout(reason: str = "Your session has expired. Please log in again.") -> None:
+    st.warning(reason)
+    st.query_params.clear()
+    for k, default in _SESSION_DEFAULTS.items():
+        st.session_state[k] = default
+    st.session_state.onboarding_complete = False
+    st.session_state.pop("ref_foods", None)
+    st.session_state.pop("cached_profile", None)
+    st.rerun()
+
+
+def _try_refresh() -> bool:
+    """Attempt a silent token refresh. Returns True and updates session on success."""
+    raw_refresh = st.session_state.get("refresh_token")
+    if not raw_refresh:
+        return False
+    try:
+        r = httpx.post(
+            f"{API_BASE}/auth/refresh",
+            json={"refresh_token": raw_refresh},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return False
+        data = r.json()
+        st.session_state.token = data["token"]
+        st.session_state.refresh_token = data["refresh_token"]
+        st.query_params["token"] = data[
+            "token"
+        ]  # keep access token in URL for page-reload persistence
+        return True
+    except Exception:
+        return False
+
+
+def _request(
+    method: str,
+    path: str,
+    *,
+    body: dict | None = None,
+    params: dict | None = None,
+    timeout: int = 60,
+) -> "dict | list | None":
+    url = f"{API_BASE}{path}"
+    last_exc: Exception | None = None
+    _refreshed = False
+    for _attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            r = httpx.request(
+                method,
+                url,
+                json=body,
+                params=params,
+                headers=_auth_headers(),
+                timeout=timeout,
+                follow_redirects=True,
+            )
+            if r.status_code == 401:
+                if not _refreshed and _try_refresh():
+                    _refreshed = True
+                    continue  # retry once with the new access token
+                _force_logout()
+                return None  # unreachable; _force_logout calls st.rerun()
+            r.raise_for_status()
+            return cast("dict | list", r.json())
+        except httpx.HTTPStatusError as e:
+            st.error(f"API error {e.response.status_code}: {e.response.text}")
+            return None  # deterministic HTTP error — retrying won't help
+        except Exception as e:
+            last_exc = e
+    st.error(f"Connection error after {_MAX_RETRIES} attempts: {last_exc}")
+    return None
+
+
 def _fetch_profile() -> tuple[dict | None, int | None]:
     """Fetch /profile/me and return (body, http_status).
     Returns (None, None) on connection/timeout errors so callers can
@@ -166,42 +244,15 @@ def _fetch_profile() -> tuple[dict | None, int | None]:
 
 
 def api_post(path: str, body: dict, timeout: int = 60) -> dict | None:
-    try:
-        r = httpx.post(f"{API_BASE}{path}", json=body, headers=_auth_headers(), timeout=timeout)
-        r.raise_for_status()
-        return cast(dict, r.json())
-    except httpx.HTTPStatusError as e:
-        st.error(f"API error {e.response.status_code}: {e.response.text}")
-    except Exception as e:
-        st.error(f"Connection error: {e}")
-    return None
+    return cast("dict | None", _request("POST", path, body=body, timeout=timeout))
 
 
 def api_patch(path: str, body: dict) -> dict | None:
-    try:
-        r = httpx.patch(f"{API_BASE}{path}", json=body, headers=_auth_headers(), timeout=30)
-        r.raise_for_status()
-        return cast(dict, r.json())
-    except httpx.HTTPStatusError as e:
-        st.error(f"API error {e.response.status_code}: {e.response.text}")
-    except Exception as e:
-        st.error(f"Connection error: {e}")
-    return None
+    return cast("dict | None", _request("PATCH", path, body=body, timeout=30))
 
 
 def api_get(path: str, params: dict | None = None) -> dict | list | None:
-    try:
-        r = httpx.get(
-            f"{API_BASE}{path}",
-            params=params,
-            headers=_auth_headers(),
-            timeout=10,
-            follow_redirects=True,
-        )
-        r.raise_for_status()
-        return cast("dict | list", r.json())
-    except Exception:
-        return None
+    return _request("GET", path, params=params, timeout=10)
 
 
 def call_analyze(intent: str, log_id: int | None = None, message: str | None = None) -> dict | None:
@@ -319,6 +370,7 @@ def _render_auth_page():
                     st.session_state.user_id = result["id"]
                     st.session_state.username = result["username"]
                     st.session_state.token = result["token"]
+                    st.session_state.refresh_token = result["refresh_token"]
                     st.query_params["token"] = result["token"]
                     st.query_params["uid"] = str(result["id"])
                     st.query_params["uname"] = result["username"]
@@ -346,6 +398,7 @@ def _render_auth_page():
                         st.session_state.user_id = result["id"]
                         st.session_state.username = result["username"]
                         st.session_state.token = result["token"]
+                        st.session_state.refresh_token = result["refresh_token"]
                         st.query_params["token"] = result["token"]
                         st.query_params["uid"] = str(result["id"])
                         st.query_params["uname"] = result["username"]
@@ -818,41 +871,15 @@ with st.sidebar:
     st.title("🧠 MigraineTackler")
     st.caption(f"Logged in as **{st.session_state.username}**")
     if st.button("Log out", use_container_width=True):
-        st.query_params.clear()
-        for k in [
-            "user_id",
-            "username",
-            "token",
-            "intake_messages",
-            "research_messages",
-            "sos_pending",
-            "sos_data",
-            "reset_confirm",
-            "geo_city",
-            "onboarding_step",
-            "onboarding_data",
-        ]:
-            st.session_state[k] = (
-                []
-                if k.endswith("messages")
-                else (
-                    {}
-                    if k in ("sos_data", "onboarding_data")
-                    else (
-                        1
-                        if k == "onboarding_step"
-                        else (
-                            False
-                            if k in ("sos_pending", "reset_confirm")
-                            else (None if k in ("user_id", "username", "token") else "")
-                        )
-                    )
+        raw_refresh = st.session_state.get("refresh_token")
+        if raw_refresh:
+            try:
+                httpx.post(
+                    f"{API_BASE}/auth/logout", json={"refresh_token": raw_refresh}, timeout=5
                 )
-            )
-        st.session_state.onboarding_complete = False
-        st.session_state.pop("ref_foods", None)
-        st.session_state.pop("cached_profile", None)
-        st.rerun()
+            except Exception:  # noqa: S110
+                pass  # best-effort — local session is cleared regardless
+        _force_logout("You have been logged out.")
 
     if st.session_state.sos_pending:
         st.warning("🆘 SOS pending — add recovery details")

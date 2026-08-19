@@ -60,8 +60,10 @@ STEP 2 — Log entry  (POST /shortcut/log)
 from datetime import date as date_type
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlmodel import Session, select
 
 from app.config import settings
@@ -72,6 +74,7 @@ from app.services import email as email_svc
 from app.services.log_service import create
 
 router = APIRouter()
+_ip_limiter = Limiter(key_func=get_remote_address)
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -186,7 +189,9 @@ def shortcut_context(
 
 
 @router.post("/log", response_model=ShortcutLogResponse)
+@_ip_limiter.limit("10/minute")
 def shortcut_log(
+    request: Request,
     body: ShortcutLogRequest,
     background_tasks: BackgroundTasks,
     session: Session = Depends(get_session_dep),

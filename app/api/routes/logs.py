@@ -1,9 +1,9 @@
 from datetime import date
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlmodel import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, user_limiter
 from app.api.schemas import LogCreateResponse, LogEntryCreate, LogEntryRead, ToxicLoadResponse
 from app.database import get_session_dep
 from app.models.user import User
@@ -15,7 +15,9 @@ router = APIRouter()
 
 
 @router.post("/", response_model=LogCreateResponse, status_code=201)
+@user_limiter.limit("10/minute")
 def create_log(
+    request: Request,
     payload: LogEntryCreate,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
