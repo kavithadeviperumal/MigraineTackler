@@ -10,9 +10,15 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 
 def _engine_url() -> str:
     url = settings.database_url
-    # SQLAlchemy needs the psycopg driver prefix
+    # Normalize to postgresql+psycopg:// for SQLAlchemy 2.x + psycopg3.
+    # Render provides postgres://, some tools use postgresql://, local dev may
+    # already use postgresql+psycopg://.
+    if url.startswith("postgresql+psycopg://"):
+        return url
     if url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+        return url.replace("postgresql://", "postgresql+psycopg://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+psycopg://", 1)
     return url
 
 
