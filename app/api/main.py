@@ -1,5 +1,7 @@
 import logging
+import sys
 import threading
+import traceback
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
@@ -26,13 +28,21 @@ async def lifespan(app: FastAPI):
         _logger.info("startup: running db migrations")
         create_db_and_tables()
         _logger.info("startup: migrations complete")
-    except Exception:
-        _logger.exception("startup: db migration failed")
+    except Exception as exc:
+        # alembic's fileConfig() disables existing loggers, so _logger.exception()
+        # is silenced. Print directly to stderr so Render always shows the error.
+        print(f"STARTUP FATAL: db migration failed — {exc}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
         raise
 
     from app.graph.graph import close_graph, init_graph
 
-    await init_graph()
+    try:
+        await init_graph()
+    except Exception as exc:
+        print(f"STARTUP FATAL: graph init failed — {exc}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        raise
 
     def _seed_guidelines():
         from app.services.guideline_seeder import seed_guidelines

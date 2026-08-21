@@ -15,6 +15,9 @@ dependencies = [
     "langsmith>=0.2.0",
     # Database driver (PostgreSQL)
     "psycopg[binary]>=3.1.0",
+    "psycopg-pool>=3.1.0",
+    # Retry logic
+    "tenacity>=8.2.0",
     # UI
     "streamlit>=1.40.0",
     # Database
