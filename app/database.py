@@ -10,9 +10,10 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 
 def _engine_url() -> str:
     url = settings.database_url
+    # Supabase pooler appends ?pgbouncer=true as a docs hint; psycopg passes
+    # all query params to libpq as connection options and rejects unknown ones.
+    url = url.replace("?pgbouncer=true", "").replace("&pgbouncer=true", "")
     # Normalize to postgresql+psycopg:// for SQLAlchemy 2.x + psycopg3.
-    # Render provides postgres://, some tools use postgresql://, local dev may
-    # already use postgresql+psycopg://.
     if url.startswith("postgresql+psycopg://"):
         return url
     if url.startswith("postgresql://"):
