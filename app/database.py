@@ -27,11 +27,22 @@ engine = create_engine(_engine_url(), echo=False, pool_size=10, max_overflow=20)
 
 
 def create_db_and_tables() -> None:
+    from sqlalchemy import inspect
+
     from alembic import command  # type: ignore[attr-defined]
     from alembic.config import Config
 
     cfg = Config(str(_PROJECT_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(_PROJECT_ROOT / "alembic"))
+
+    with engine.connect() as conn:
+        inspector = inspect(conn)
+        tables = inspector.get_table_names()
+        # Tables exist but alembic_version doesn't — DB was created outside
+        # Alembic (e.g. earlier manual run). Stamp head so upgrade is a no-op.
+        if "users" in tables and "alembic_version" not in tables:
+            command.stamp(cfg, "head")
+
     command.upgrade(cfg, "head")
 
 
