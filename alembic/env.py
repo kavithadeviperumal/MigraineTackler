@@ -17,7 +17,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Override sqlalchemy.url from app settings so credentials stay out of alembic.ini
-config.set_main_option("sqlalchemy.url", _engine_url())
+config.set_main_option("sqlalchemy.url", _engine_url().replace("%", "%%"))
 
 target_metadata = SQLModel.metadata
 
