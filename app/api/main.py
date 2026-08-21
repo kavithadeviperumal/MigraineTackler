@@ -37,7 +37,12 @@ async def lifespan(app: FastAPI):
 
     from app.graph.graph import close_graph, init_graph
 
-    await init_graph()
+    try:
+        await init_graph()
+    except Exception as exc:
+        print(f"STARTUP FATAL: graph init failed — {exc}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        raise
 
     def _seed_guidelines():
         from app.services.guideline_seeder import seed_guidelines
