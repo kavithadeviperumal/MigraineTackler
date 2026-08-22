@@ -20,6 +20,7 @@ dependencies = [
     "tenacity>=8.2.0",
     # UI
     "streamlit>=1.40.0",
+    "streamlit-javascript>=0.0.3",
     # Database
     "sqlmodel>=0.0.21",
     # Config + env
