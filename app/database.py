@@ -41,7 +41,9 @@ def create_db_and_tables() -> None:
         # Tables exist but alembic_version doesn't — DB was created outside
         # Alembic (e.g. earlier manual run). Stamp head so upgrade is a no-op.
         if "users" in tables and "alembic_version" not in tables:
-            command.stamp(cfg, "head")
+            # Stamp only the initial schema revision (not head) so that
+            # subsequent migrations (refresh_tokens, RLS) are actually run.
+            command.stamp(cfg, "0001")
 
     command.upgrade(cfg, "head")
 
