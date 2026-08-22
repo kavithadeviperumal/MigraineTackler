@@ -4,7 +4,7 @@ from typing import Any, cast
 
 import httpx
 import streamlit as st
-import streamlit.components.v1 as components
+from streamlit_javascript import st_javascript
 
 from components.time_picker import time_picker as _time_picker_widget
 
@@ -144,40 +144,30 @@ if st.session_state.token is None and "token" in st.query_params:
     st.session_state.username = st.query_params.get("uname")
 
 # ── Client-side local date detection ─────────────────────────────────────────
-# Streamlit Cloud runs in UTC; users may be in any timezone. On first load we
-# inject a tiny JS snippet that appends the browser's local date to the URL as
-# ?ld=YYYY-MM-DD and reloads. On the next run Python reads it into session state
-# and removes the param. Subsequent runs use the cached session value.
+# Streamlit Cloud runs in UTC; users may be behind UTC and see tomorrow's date.
+# st_javascript executes JS in the browser via Streamlit's component channel and
+# returns the result to Python. Returns 0 (int) on the first render while the
+# component initialises; returns the date string on the triggered re-run.
 
 
 def _local_today() -> date:
     return cast(date, st.session_state.get("local_date", date.today()))
 
 
-if "local_date" not in st.session_state:
-    if "ld" in st.query_params:
+if not st.session_state.get("ld_confirmed"):
+    _ld_raw = st_javascript(
+        "(() => { const d = new Date(); return d.getFullYear() + '-' + "
+        "String(d.getMonth()+1).padStart(2,'0') + '-' + "
+        "String(d.getDate()).padStart(2,'0'); })()"
+    )
+    if isinstance(_ld_raw, str) and len(_ld_raw) == 10:
         try:
-            st.session_state.local_date = date.fromisoformat(st.query_params["ld"])
+            st.session_state.local_date = date.fromisoformat(_ld_raw)
+            st.session_state.ld_confirmed = True
         except ValueError:
             st.session_state.local_date = date.today()
-        del st.query_params["ld"]
     else:
-        st.session_state.local_date = date.today()
-        components.html(
-            """
-            <script>
-            const d = new Date();
-            const ld = d.getFullYear() + '-' +
-                String(d.getMonth() + 1).padStart(2, '0') + '-' +
-                String(d.getDate()).padStart(2, '0');
-            const url = new URL(window.parent.location.href);
-            url.searchParams.set('ld', ld);
-            window.parent.location.replace(url.toString());
-            </script>
-            """,
-            height=0,
-        )
-        st.stop()
+        st.session_state.local_date = cast(date, st.session_state.get("local_date", date.today()))
 
 # ── API helpers ───────────────────────────────────────────────────────────────
 
