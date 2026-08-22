@@ -38,11 +38,15 @@ def create_db_and_tables() -> None:
     with engine.connect() as conn:
         inspector = inspect(conn)
         tables = inspector.get_table_names()
-        # Tables exist but alembic_version doesn't — DB was created outside
-        # Alembic (e.g. earlier manual run). Stamp head so upgrade is a no-op.
-        if "users" in tables and "alembic_version" not in tables:
-            # Stamp only the initial schema revision (not head) so that
-            # subsequent migrations (refresh_tokens, RLS) are actually run.
+        # Two cases where we need to re-anchor the alembic revision:
+        # 1. alembic_version missing — DB was created outside Alembic entirely.
+        # 2. alembic_version claims head but refresh_tokens is absent — a previous
+        #    deploy incorrectly stamped head without running the migrations.
+        # In both cases stamp to 0001 (the initial schema that genuinely exists)
+        # so that upgrade actually runs 0002 (refresh_tokens) and 0003 (RLS).
+        if "users" in tables and (
+            "alembic_version" not in tables or "refresh_tokens" not in tables
+        ):
             command.stamp(cfg, "0001")
 
     command.upgrade(cfg, "head")
