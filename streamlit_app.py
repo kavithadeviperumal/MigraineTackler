@@ -4,6 +4,7 @@ from typing import Any, cast
 
 import httpx
 import streamlit as st
+import streamlit.components.v1 as components
 
 from components.time_picker import time_picker as _time_picker_widget
 
@@ -141,6 +142,42 @@ if st.session_state.token is None and "token" in st.query_params:
     st.session_state.token = st.query_params["token"]
     st.session_state.user_id = st.query_params.get("uid")
     st.session_state.username = st.query_params.get("uname")
+
+# ── Client-side local date detection ─────────────────────────────────────────
+# Streamlit Cloud runs in UTC; users may be in any timezone. On first load we
+# inject a tiny JS snippet that appends the browser's local date to the URL as
+# ?ld=YYYY-MM-DD and reloads. On the next run Python reads it into session state
+# and removes the param. Subsequent runs use the cached session value.
+
+
+def _local_today() -> date:
+    return cast(date, st.session_state.get("local_date", date.today()))
+
+
+if "local_date" not in st.session_state:
+    if "ld" in st.query_params:
+        try:
+            st.session_state.local_date = date.fromisoformat(st.query_params["ld"])
+        except ValueError:
+            st.session_state.local_date = date.today()
+        del st.query_params["ld"]
+    else:
+        st.session_state.local_date = date.today()
+        components.html(
+            """
+            <script>
+            const d = new Date();
+            const ld = d.getFullYear() + '-' +
+                String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                String(d.getDate()).padStart(2, '0');
+            const url = new URL(window.parent.location.href);
+            url.searchParams.set('ld', ld);
+            window.parent.location.replace(url.toString());
+            </script>
+            """,
+            height=0,
+        )
+        st.stop()
 
 # ── API helpers ───────────────────────────────────────────────────────────────
 
@@ -960,7 +997,7 @@ if page == "📋 Log Entry":
         st.caption("✅ Great day — 30-second check-in")
 
         with st.form("log_form_free", clear_on_submit=False):
-            entry_date = st.date_input("Date", value=date.today(), max_value=date.today())
+            entry_date = st.date_input("Date", value=_local_today(), max_value=_local_today())
 
             c1, c2 = st.columns(2)
             sleep_quality = c1.slider("Sleep quality last night", 1, 10, 6, key="slq_free")
@@ -1021,7 +1058,7 @@ if page == "📋 Log Entry":
             st.caption("🔴 Quick capture now — add the details when you recover.")
 
             with st.form("sos_form", clear_on_submit=False):
-                entry_date = st.date_input("Date", value=date.today(), max_value=date.today())
+                entry_date = st.date_input("Date", value=_local_today(), max_value=_local_today())
                 sos_time_val = datetime.now().strftime("%H:%M")
                 st.markdown("#### Pain level right now")
                 pain_level = st.select_slider(
