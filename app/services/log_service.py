@@ -36,14 +36,27 @@ class LogCreateResult:
 
 def create(session: Session, data: dict) -> LogCreateResult:
     """
-    Persist a new LogEntry then run deterministic safety checks.
+    Upsert a LogEntry for (user_id, entry_date) then run deterministic safety checks.
     Safety checks run after save so rules_engine can query the full 30-day window
     including the entry just written.
     """
     city = data.pop("city", None)
 
-    entry = LogEntry(**data)
-    session.add(entry)
+    existing = session.exec(
+        select(LogEntry).where(
+            LogEntry.user_id == data.get("user_id"),
+            LogEntry.entry_date == data.get("entry_date"),
+        )
+    ).first()
+
+    if existing:
+        for key, value in data.items():
+            setattr(existing, key, value)
+        entry = existing
+    else:
+        entry = LogEntry(**data)
+        session.add(entry)
+
     session.commit()
     session.refresh(entry)
 
