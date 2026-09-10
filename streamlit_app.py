@@ -295,10 +295,10 @@ def call_analyze(intent: str, log_id: int | None = None, message: str | None = N
 
 
 def _fmt_date(iso: str) -> str:
-    """Convert YYYY-MM-DD to DD/MM/YYYY for display."""
+    """Convert YYYY-MM-DD to MM/DD/YYYY for display."""
     try:
         d = iso.split("-")
-        return f"{d[2]}/{d[1]}/{d[0]}"
+        return f"{d[1]}/{d[2]}/{d[0]}"
     except (IndexError, AttributeError):
         return iso
 
