@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -10,6 +11,8 @@ from app.models.user import User
 from app.rules.rules_engine import rolling_load
 from app.services import email as email_svc
 from app.services import log_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -25,7 +28,22 @@ def create_log(
 ):
     data = payload.model_dump()
     data["user_id"] = current_user.id
-    result = log_service.create(session, data)
+    logger.info(
+        "log.create user_id=%s entry_date=%s migraine=%s pain_level=%s",
+        current_user.id,
+        data.get("entry_date"),
+        data.get("migraine_occurred"),
+        data.get("pain_level"),
+    )
+    try:
+        result = log_service.create(session, data)
+    except Exception:
+        logger.exception(
+            "log.create.failed user_id=%s entry_date=%s",
+            current_user.id,
+            data.get("entry_date"),
+        )
+        raise
 
     if result.red_flag:
         background_tasks.add_task(email_svc.send_red_flag_alert, result.red_flag_symptoms)
