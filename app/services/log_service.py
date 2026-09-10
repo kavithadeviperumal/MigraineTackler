@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 
 from sqlmodel import Session, col, select
@@ -5,6 +6,8 @@ from sqlmodel import Session, col, select
 from app.models.log_entry import LogEntry
 from app.rules.rules_engine import check_moh, check_red_flags
 from app.services.weather_service import append_weather
+
+logger = logging.getLogger(__name__)
 
 
 class LogCreateResult:
@@ -51,11 +54,32 @@ def create(session: Session, data: dict) -> LogCreateResult:
 
     if existing:
         for key, value in data.items():
+            if key == "migraine_occurred" and existing.migraine_occurred and not value:
+                logger.warning(
+                    "log.upsert: blocked migraine->non-migraine downgrade user_id=%s entry_date=%s",
+                    data.get("user_id"),
+                    data.get("entry_date"),
+                )
+                continue
+            if value is None:
+                continue
             setattr(existing, key, value)
+        logger.info(
+            "log.upsert: updated existing entry user_id=%s entry_date=%s migraine=%s",
+            data.get("user_id"),
+            data.get("entry_date"),
+            existing.migraine_occurred,
+        )
         entry = existing
     else:
         entry = LogEntry(**data)
         session.add(entry)
+        logger.info(
+            "log.upsert: created new entry user_id=%s entry_date=%s migraine=%s",
+            data.get("user_id"),
+            data.get("entry_date"),
+            entry.migraine_occurred,
+        )
 
     session.commit()
     session.refresh(entry)

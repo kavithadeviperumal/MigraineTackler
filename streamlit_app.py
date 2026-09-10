@@ -294,6 +294,15 @@ def call_analyze(intent: str, log_id: int | None = None, message: str | None = N
 # ── Shared utilities ──────────────────────────────────────────────────────────
 
 
+def _fmt_date(iso: str) -> str:
+    """Convert YYYY-MM-DD to DD/MM/YYYY for display."""
+    try:
+        d = iso.split("-")
+        return f"{d[2]}/{d[1]}/{d[0]}"
+    except (IndexError, AttributeError):
+        return iso
+
+
 def migraine_free_streak(logs: list) -> int:
     streak = 0
     for log in sorted(logs, key=lambda entry: entry["entry_date"], reverse=True):
@@ -831,6 +840,7 @@ def _submit_log(payload: dict):
             st.rerun()
     else:
         slot.empty()
+        st.error("❌ Failed to save your log. Please check your connection and try again.")
 
 
 # ── Auth gate ─────────────────────────────────────────────────────────────────
@@ -980,7 +990,12 @@ if page == "📋 Log Entry":
             st.rerun()
         st.stop()
 
-    migraine_occurred = st.toggle("Migraine today?", key="migraine_toggle")
+    toggled = st.toggle("Migraine today?", key="migraine_toggle")
+    if toggled:
+        st.session_state["migraine_intent"] = True
+    elif not st.session_state.get("sos_pending"):
+        st.session_state["migraine_intent"] = False
+    migraine_occurred = st.session_state.get("migraine_intent", False)
 
     # ── Quick path: migraine-free day ─────────────────────────────────────────
     if not migraine_occurred:
@@ -1465,7 +1480,7 @@ elif page == "📅 History":
     else:
         for log in logs:
             icon = "🔴" if log.get("migraine_occurred") else "🟢"
-            label = f"{icon} {log['entry_date']}"
+            label = f"{icon} {_fmt_date(log['entry_date'])}"
             if log.get("pain_level"):
                 label += f" — pain {log['pain_level']}/10"
             with st.expander(label):
