@@ -998,7 +998,12 @@ if page == "📋 Log Entry":
             st.rerun()
         st.stop()
 
-    toggled = st.toggle("Migraine today?", key="migraine_toggle")
+    entry_date = st.date_input(
+        "Date", value=_local_today(), max_value=_local_today(), key="log_entry_date"
+    )
+    is_past = entry_date < _local_today()
+
+    toggled = st.toggle("Did you have a migraine?", key="migraine_toggle")
     if toggled:
         st.session_state["migraine_intent"] = True
     elif not st.session_state.get("sos_pending"):
@@ -1010,8 +1015,6 @@ if page == "📋 Log Entry":
         st.caption("✅ Great day — 30-second check-in")
 
         with st.form("log_form_free", clear_on_submit=False):
-            entry_date = st.date_input("Date", value=_local_today(), max_value=_local_today())
-
             c1, c2 = st.columns(2)
             sleep_quality = c1.slider("Sleep quality last night", 1, 10, 6, key="slq_free")
             stress_level = c2.slider(
@@ -1067,11 +1070,17 @@ if page == "📋 Log Entry":
 
     # ── Migraine path ─────────────────────────────────────────────────────────
     else:
-        if not st.session_state.sos_pending:
+        # Clear stale SOS state if user switches to a past date
+        if is_past and st.session_state.sos_pending:
+            st.session_state.sos_pending = False
+            st.session_state.sos_data = {}
+
+        show_detailed = is_past or st.session_state.sos_pending
+
+        if not show_detailed:
             st.caption("🔴 Quick capture now — add the details when you recover.")
 
             with st.form("sos_form", clear_on_submit=False):
-                entry_date = st.date_input("Date", value=_local_today(), max_value=_local_today())
                 sos_time_val = st.session_state.get("local_time", datetime.now().strftime("%H:%M"))
                 st.markdown("#### Pain level right now")
                 pain_level = st.select_slider(
@@ -1087,24 +1096,38 @@ if page == "📋 Log Entry":
                 )
 
             if submitted_sos:
-                st.session_state.sos_pending = True
-                st.session_state.sos_data = {
-                    "date": str(entry_date),
-                    "time": sos_time_val,
+                sos_payload = {
+                    "entry_date": str(entry_date),
+                    "migraine_occurred": True,
                     "pain_level": pain_level,
-                    "medication": med_quick if med_quick != "None yet" else None,
+                    "medications": [med_quick] if med_quick != "None yet" else [],
                 }
-                st.rerun()
+                result = api_post("/logs/", sos_payload)
+                if result:
+                    st.session_state.sos_pending = True
+                    st.session_state.sos_data = {
+                        "date": str(entry_date),
+                        "time": sos_time_val,
+                        "pain_level": pain_level,
+                        "medication": med_quick if med_quick != "None yet" else None,
+                    }
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to save. Check your connection and try again.")
 
         else:
-            sos = st.session_state.sos_data
-            st.info(
-                f"🔴 Migraine logged at **{sos.get('time', '')}** — pain **{sos.get('pain_level', '?')}/10**. Add a few details when you feel up to it."
-            )
-            if st.button("❌ Clear (false alarm)"):
-                st.session_state.sos_pending = False
-                st.session_state.sos_data = {}
-                st.rerun()
+            if not is_past:
+                sos = st.session_state.sos_data
+                st.info(
+                    f"🔴 Migraine logged at **{sos.get('time', '')}** — pain **{sos.get('pain_level', '?')}/10**. Add a few details when you feel up to it."
+                )
+                if st.button("❌ Clear (false alarm)"):
+                    st.session_state.sos_pending = False
+                    st.session_state.sos_data = {}
+                    st.rerun()
+            else:
+                sos = {"date": str(entry_date), "pain_level": 7, "medication": None}
+                st.caption(f"📋 Logging migraine for {entry_date.strftime('%B %d, %Y')}")
             st.divider()
 
             # ── Auto-derive context from yesterday's log ──────────────────────
