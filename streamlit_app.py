@@ -1079,14 +1079,24 @@ if page == "📋 Log Entry":
                 )
 
             if submitted_sos:
-                st.session_state.sos_pending = True
-                st.session_state.sos_data = {
-                    "date": str(entry_date),
-                    "time": sos_time_val,
+                sos_payload = {
+                    "entry_date": str(entry_date),
+                    "migraine_occurred": True,
                     "pain_level": pain_level,
-                    "medication": med_quick if med_quick != "None yet" else None,
+                    "medications": [med_quick] if med_quick != "None yet" else [],
                 }
-                st.rerun()
+                result = api_post("/logs/", sos_payload)
+                if result:
+                    st.session_state.sos_pending = True
+                    st.session_state.sos_data = {
+                        "date": str(entry_date),
+                        "time": sos_time_val,
+                        "pain_level": pain_level,
+                        "medication": med_quick if med_quick != "None yet" else None,
+                    }
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to save. Check your connection and try again.")
 
         else:
             sos = st.session_state.sos_data
