@@ -169,6 +169,14 @@ if not st.session_state.get("ld_confirmed"):
     else:
         st.session_state.local_date = cast(date, st.session_state.get("local_date", date.today()))
 
+_lt_raw = st_javascript(
+    "(() => { const d = new Date(); return "
+    "String(d.getHours()).padStart(2,'0') + ':' + "
+    "String(d.getMinutes()).padStart(2,'0'); })()"
+)
+if isinstance(_lt_raw, str) and len(_lt_raw) == 5:
+    st.session_state.local_time = _lt_raw
+
 # ── API helpers ───────────────────────────────────────────────────────────────
 
 
@@ -1064,7 +1072,7 @@ if page == "📋 Log Entry":
 
             with st.form("sos_form", clear_on_submit=False):
                 entry_date = st.date_input("Date", value=_local_today(), max_value=_local_today())
-                sos_time_val = datetime.now().strftime("%H:%M")
+                sos_time_val = st.session_state.get("local_time", datetime.now().strftime("%H:%M"))
                 st.markdown("#### Pain level right now")
                 pain_level = st.select_slider(
                     " ",
