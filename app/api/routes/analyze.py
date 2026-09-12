@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Request
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from langchain_core.messages import AIMessage, HumanMessage
 from sqlmodel import Session
 
@@ -12,6 +14,8 @@ from app.rules.rules_engine import build_deterministic_stats, check_red_flags
 from app.services import log_service
 
 router = APIRouter()
+
+_logger = logging.getLogger(__name__)
 
 
 @router.get("/state/me")
@@ -64,7 +68,14 @@ async def analyze(
     else:
         full_state = state_update
 
-    result = await graph.ainvoke(full_state, config=config)
+    try:
+        result = await graph.ainvoke(full_state, config=config)
+    except Exception as exc:
+        _logger.exception(
+            "graph_invoke_failed",
+            extra={"intent": body.intent, "user_id": current_user.id},
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     ai_messages = [msg.content for msg in result.get("messages", []) if isinstance(msg, AIMessage)]
 
