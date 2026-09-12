@@ -144,7 +144,13 @@ async def init_graph() -> None:
     t = time.monotonic()
     try:
         conninfo = _make_conninfo(settings.database_url)
-        _pool = AsyncConnectionPool(conninfo=conninfo, min_size=1, max_size=10, open=False)
+        _pool = AsyncConnectionPool(
+            conninfo=conninfo,
+            min_size=1,
+            max_size=10,
+            open=False,
+            kwargs={"autocommit": True, "prepare_threshold": 0},
+        )
         await _pool.open()
         checkpointer = AsyncPostgresSaver(_pool)
         await checkpointer.setup()
