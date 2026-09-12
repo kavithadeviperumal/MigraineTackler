@@ -149,7 +149,7 @@ async def init_graph() -> None:
             min_size=1,
             max_size=10,
             open=False,
-            kwargs={"autocommit": True, "prepare_threshold": 0},
+            kwargs={"autocommit": True, "prepare_threshold": None},
         )
         await _pool.open()
         checkpointer = AsyncPostgresSaver(_pool)
