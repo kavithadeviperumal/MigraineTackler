@@ -1464,16 +1464,19 @@ elif page == "📊 Dashboard":
         c1, c2, c3 = st.columns(3)
         if c1.button("🔄 Run Pattern Analysis", use_container_width=True):
             with _progress("🔄 Analyzing patterns..."):
-                call_analyze("pattern_review")
-            st.success("Done. Refresh to see updated triggers.")
+                _r = call_analyze("pattern_review")
+            if _r is not None:
+                st.success("Done. Refresh to see updated triggers.")
         if c2.button("🧠 Run Root Cause Analysis", use_container_width=True):
             with _progress("🧠 Analyzing root cause..."):
-                call_analyze("root_cause_review")
-            st.success("Done. Refresh to see updated hypothesis.")
+                _r = call_analyze("root_cause_review")
+            if _r is not None:
+                st.success("Done. Refresh to see updated hypothesis.")
         if c3.button("📋 Generate Protocol", use_container_width=True):
             with _progress("📋 Generating protocol..."):
-                call_analyze("protocol_review")
-            st.success("Done. Refresh to see your protocol.")
+                _r = call_analyze("protocol_review")
+            if _r is not None:
+                st.success("Done. Refresh to see your protocol.")
 
 # ── Page: Research ────────────────────────────────────────────────────────────
 
