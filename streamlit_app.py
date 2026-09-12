@@ -169,6 +169,14 @@ if not st.session_state.get("ld_confirmed"):
     else:
         st.session_state.local_date = cast(date, st.session_state.get("local_date", date.today()))
 
+_lt_raw = st_javascript(
+    "(() => { const d = new Date(); return "
+    "String(d.getHours()).padStart(2,'0') + ':' + "
+    "String(d.getMinutes()).padStart(2,'0'); })()"
+)
+if isinstance(_lt_raw, str) and len(_lt_raw) == 5:
+    st.session_state.local_time = _lt_raw
+
 # ── API helpers ───────────────────────────────────────────────────────────────
 
 
@@ -295,10 +303,10 @@ def call_analyze(intent: str, log_id: int | None = None, message: str | None = N
 
 
 def _fmt_date(iso: str) -> str:
-    """Convert YYYY-MM-DD to DD/MM/YYYY for display."""
+    """Convert YYYY-MM-DD to MM/DD/YYYY for display."""
     try:
         d = iso.split("-")
-        return f"{d[2]}/{d[1]}/{d[0]}"
+        return f"{d[1]}/{d[2]}/{d[0]}"
     except (IndexError, AttributeError):
         return iso
 
@@ -1074,6 +1082,8 @@ if page == "📋 Log Entry":
 
             with st.form("sos_form", clear_on_submit=False):
                 sos_time_val = datetime.now().strftime("%H:%M")
+                entry_date = st.date_input("Date", value=_local_today(), max_value=_local_today())
+                sos_time_val = st.session_state.get("local_time", datetime.now().strftime("%H:%M"))
                 st.markdown("#### Pain level right now")
                 pain_level = st.select_slider(
                     " ",
@@ -1088,14 +1098,24 @@ if page == "📋 Log Entry":
                 )
 
             if submitted_sos:
-                st.session_state.sos_pending = True
-                st.session_state.sos_data = {
-                    "date": str(entry_date),
-                    "time": sos_time_val,
+                sos_payload = {
+                    "entry_date": str(entry_date),
+                    "migraine_occurred": True,
                     "pain_level": pain_level,
-                    "medication": med_quick if med_quick != "None yet" else None,
+                    "medications": [med_quick] if med_quick != "None yet" else [],
                 }
-                st.rerun()
+                result = api_post("/logs/", sos_payload)
+                if result:
+                    st.session_state.sos_pending = True
+                    st.session_state.sos_data = {
+                        "date": str(entry_date),
+                        "time": sos_time_val,
+                        "pain_level": pain_level,
+                        "medication": med_quick if med_quick != "None yet" else None,
+                    }
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to save. Check your connection and try again.")
 
         else:
             if not is_past:
