@@ -1298,6 +1298,8 @@ if page == "📋 Log Entry":
             if submitted_smart:
                 st.session_state.sos_pending = False
                 st.session_state.sos_data = {}
+                st.session_state["migraine_toggle"] = False
+                st.session_state["migraine_intent"] = False
                 _notes_parts = []
                 if dynamic_answer.strip():
                     _notes_parts.append(
