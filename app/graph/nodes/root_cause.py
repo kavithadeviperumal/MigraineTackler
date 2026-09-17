@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import UTC, datetime
+from functools import cache
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -16,13 +17,20 @@ from app.services.rag_service import retrieve_relevant
 
 _logger = logging.getLogger(__name__)
 
-_llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    api_key=settings.openai_api_key,
-    max_tokens=2048,
-    temperature=0,
-)
-_structured_llm = _llm.with_structured_output(RootCauseOutput)
+
+@cache
+def _get_llm() -> ChatOpenAI:
+    return ChatOpenAI(
+        model="gpt-4o-mini",
+        api_key=settings.openai_api_key or None,
+        max_tokens=2048,
+        temperature=0,
+    )
+
+
+@cache
+def _get_structured_llm():
+    return _get_llm().with_structured_output(RootCauseOutput)
 
 
 def _fetch_kb_sync(user_id: int, query: str) -> list[dict]:
@@ -43,7 +51,7 @@ def _fetch_kb_sync(user_id: int, query: str) -> list[dict]:
     reraise=True,
 )
 async def _invoke(messages: list):
-    return await asyncio.wait_for(_structured_llm.ainvoke(messages), timeout=30.0)
+    return await asyncio.wait_for(_get_structured_llm().ainvoke(messages), timeout=30.0)
 
 
 SYSTEM_PROMPT = """\
