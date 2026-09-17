@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import UTC, date, datetime, timedelta
+from functools import cache
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -14,13 +15,22 @@ from app.graph.nodes.schemas import PatternOutput
 from app.graph.state import MigraineState
 from app.services.log_service import list_recent
 
-_llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    api_key=settings.openai_api_key,
-    max_tokens=2048,
-    temperature=0,
-)
-_structured_llm = _llm.with_structured_output(PatternOutput)
+
+@cache
+def _get_llm() -> ChatOpenAI:
+    return ChatOpenAI(
+        model="gpt-4o-mini",
+        api_key=settings.openai_api_key or None,
+        max_tokens=2048,
+        temperature=0,
+    )
+
+
+@cache
+def _get_structured_llm():
+    return _get_llm().with_structured_output(PatternOutput)
+
+
 _logger = logging.getLogger(__name__)
 
 
@@ -36,7 +46,7 @@ def _fetch_entries_sync(since: date) -> list:
     reraise=True,
 )
 async def _invoke(messages: list):
-    return await asyncio.wait_for(_structured_llm.ainvoke(messages), timeout=30.0)
+    return await asyncio.wait_for(_get_structured_llm().ainvoke(messages), timeout=30.0)
 
 
 SYSTEM_PROMPT = """\

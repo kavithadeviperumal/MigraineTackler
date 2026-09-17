@@ -2,6 +2,7 @@ import asyncio
 import logging
 import xml.etree.ElementTree as ET
 from datetime import UTC, date, datetime
+from functools import cache
 from typing import Literal, cast
 
 import httpx
@@ -19,13 +20,20 @@ from app.services.rag_service import retrieve_relevant, store_research_chunk
 
 _logger = logging.getLogger(__name__)
 
-_llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    api_key=settings.openai_api_key,
-    max_tokens=2048,
-    temperature=0,
-)
-_structured_llm = _llm.with_structured_output(ResearchOutput)
+
+@cache
+def _get_llm() -> ChatOpenAI:
+    return ChatOpenAI(
+        model="gpt-4o-mini",
+        api_key=settings.openai_api_key or None,
+        max_tokens=2048,
+        temperature=0,
+    )
+
+
+@cache
+def _get_structured_llm():
+    return _get_llm().with_structured_output(ResearchOutput)
 
 
 class _SearchQuery(BaseModel):
@@ -37,7 +45,10 @@ class _SearchQuery(BaseModel):
     )
 
 
-_reformulator_llm = _llm.with_structured_output(_SearchQuery)
+@cache
+def _get_reformulator_llm():
+    return _get_llm().with_structured_output(_SearchQuery)
+
 
 _REFORMULATOR_PROMPT = """\
 Convert the user's migraine research question into a PubMed-optimized search query.
@@ -60,7 +71,7 @@ async def _reformulate_for_pubmed(user_question: str) -> str:
     """Return a PubMed-optimized query for free-form user input. Falls back to original on error."""
     try:
         result: _SearchQuery = await asyncio.wait_for(
-            _reformulator_llm.ainvoke(
+            _get_reformulator_llm().ainvoke(
                 [
                     SystemMessage(content=_REFORMULATOR_PROMPT),
                     HumanMessage(content=user_question),
@@ -114,7 +125,7 @@ def _cache_abstracts_sync(user_id: int, papers: list[dict]) -> None:
     reraise=True,
 )
 async def _invoke(messages: list):
-    return await asyncio.wait_for(_structured_llm.ainvoke(messages), timeout=30.0)
+    return await asyncio.wait_for(_get_structured_llm().ainvoke(messages), timeout=30.0)
 
 
 # ── API endpoints ─────────────────────────────────────────────────────────────
