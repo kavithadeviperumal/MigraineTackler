@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class NodeError(TypedDict):
     node: str  # which node failed
+    step: str  # sub-step within the node (e.g. "llm_invoke", "retrieval")
     error: str  # exception message
     timestamp: str  # UTC ISO-8601
 

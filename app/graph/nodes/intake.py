@@ -257,7 +257,12 @@ async def run(state: MigraineState) -> dict:
             ],
             "current_agent": "intake",
             "node_errors": [
-                {"node": "intake", "error": str(exc), "timestamp": datetime.now(UTC).isoformat()}
+                {
+                    "node": "intake",
+                    "step": "llm_invoke",
+                    "error": str(exc),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
             ],
         }
 

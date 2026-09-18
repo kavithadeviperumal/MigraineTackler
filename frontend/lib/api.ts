@@ -133,10 +133,36 @@ export interface AnalyzeState {
   migraine_subtype: string | null
 }
 
+export interface NodeError {
+  node: string
+  step: string
+  error: string
+  timestamp: string
+}
+
 export interface AnalyzeResponse {
   messages: string[]
   moh_alert: boolean
   red_flag: boolean
+  node_errors: NodeError[]
+}
+
+const NODE_ERROR_MESSAGES: Record<string, Record<string, string>> = {
+  research: {
+    live_retrieval: 'Live research unavailable — answer based on your personal knowledge base only.',
+    kb_retrieval: 'Your personal documents were temporarily unavailable.',
+    query_reformulation: 'Search query optimisation failed — results may be less targeted.',
+    llm_invoke: 'Research analysis failed — please try again.',
+  },
+  intake: { llm_invoke: 'Follow-up questions temporarily unavailable — please try again.' },
+  pattern: { llm_invoke: 'Pattern analysis failed — please try again.' },
+  root_cause: { llm_invoke: 'Root cause analysis failed — please try again.' },
+  protocol: { llm_invoke: 'Protocol update failed — your existing plan remains active.' },
+  lifestyle_audit: { llm_invoke: 'Lifestyle audit temporarily unavailable — please try again.' },
+}
+
+export function getNodeErrorMessage(err: NodeError): string {
+  return NODE_ERROR_MESSAGES[err.node]?.[err.step] ?? `${err.node} failed — please try again.`
 }
 
 export interface KnowledgeSource {

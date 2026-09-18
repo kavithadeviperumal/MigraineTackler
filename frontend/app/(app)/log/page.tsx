@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { type LogCreatePayload, analyze, logs, profile } from '@/lib/api'
+import { type LogCreatePayload, type NodeError, analyze, getNodeErrorMessage, logs, profile } from '@/lib/api'
 import {
   ALL_MEDICATIONS,
   CAFFEINE_MG,
@@ -293,6 +293,7 @@ export default function LogPage() {
   const [chatInput, setChatInput] = useState('')
   const [redFlag, setRedFlag] = useState(false)
   const [mohAlert, setMohAlert] = useState(false)
+  const [nodeErrors, setNodeErrors] = useState<NodeError[]>([])
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -313,6 +314,7 @@ export default function LogPage() {
       setMohAlert(logResult.moh_alert)
       const analysis = await analyze.run('log_entry', { logId: logResult.log.id })
       setChatMessages((analysis.messages ?? []).map((m) => ({ role: 'assistant' as const, content: m })))
+      if (analysis.node_errors?.length) setNodeErrors(analysis.node_errors)
       clearSosPending()
       setSosPending(null)
       queryClient.invalidateQueries({ queryKey: ['logs'] })
@@ -410,6 +412,7 @@ export default function LogPage() {
         ...prev,
         ...(analysis.messages ?? []).map((m) => ({ role: 'assistant' as const, content: m })),
       ])
+      if (analysis.node_errors?.length) setNodeErrors((prev) => [...prev, ...analysis.node_errors])
     } catch {
       setChatMessages((prev) => [
         ...prev,
@@ -474,6 +477,15 @@ export default function LogPage() {
         {mohAlert && (
           <div className="bg-chart-2/10 border border-chart-2/30 rounded-lg px-4 py-3 text-sm">
             ⚠️ Medication overuse alert — too many triptan or NSAID days in the last 30 days.
+          </div>
+        )}
+        {nodeErrors.length > 0 && (
+          <div className="space-y-1">
+            {nodeErrors.map((err, i) => (
+              <div key={i} className="bg-muted border border-border rounded-lg px-4 py-2.5 text-sm text-muted-foreground">
+                ⚠️ {getNodeErrorMessage(err)}
+              </div>
+            ))}
           </div>
         )}
 
