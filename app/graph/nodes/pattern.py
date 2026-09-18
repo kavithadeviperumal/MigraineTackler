@@ -178,7 +178,12 @@ async def run(state: MigraineState) -> dict:
                 )
             ],
             "node_errors": [
-                {"node": "pattern", "error": str(exc), "timestamp": datetime.now(UTC).isoformat()}
+                {
+                    "node": "pattern",
+                    "step": "llm_invoke",
+                    "error": str(exc),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
             ],
         }
 

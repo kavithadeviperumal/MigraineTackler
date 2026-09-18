@@ -67,8 +67,8 @@ Examples:
 """
 
 
-async def _reformulate_for_pubmed(user_question: str) -> str:
-    """Return a PubMed-optimized query for free-form user input. Falls back to original on error."""
+async def _reformulate_for_pubmed(user_question: str) -> tuple[str, str | None]:
+    """Return (pubmed_query, error_str). Falls back to original question on error."""
     try:
         result: _SearchQuery = await asyncio.wait_for(
             _get_reformulator_llm().ainvoke(
@@ -87,10 +87,10 @@ async def _reformulate_for_pubmed(user_question: str) -> str:
                 "query_type": result.query_type,
             },
         )
-        return result.pubmed_query
+        return result.pubmed_query, None
     except Exception as exc:
         _logger.warning("research: query reformulation failed, using original — %s", exc)
-        return user_question
+        return user_question, str(exc)
 
 
 def _fetch_kb_sync(user_id: int, query: str) -> list[dict]:
@@ -180,8 +180,9 @@ def _pubmed_search(query: str, max_results: int = 5) -> list[str]:
             timeout=10,
         )
         return cast(list[str], r.json().get("esearchresult", {}).get("idlist", []))
-    except Exception:
-        return []
+    except Exception as exc:
+        _logger.warning("research: pubmed_search failed: %s", exc)
+        raise
 
 
 def _pubmed_metadata(pmids: list[str]) -> dict[str, dict]:
@@ -217,8 +218,9 @@ def _pubmed_metadata(pmids: list[str]) -> dict[str, dict]:
                 "doi": doi,
             }
         return out
-    except Exception:
-        return {}
+    except Exception as exc:
+        _logger.warning("research: pubmed_metadata failed: %s", exc)
+        raise
 
 
 def _pubmed_abstracts(pmids: list[str]) -> dict[str, str]:
@@ -250,14 +252,30 @@ def _pubmed_abstracts(pmids: list[str]) -> dict[str, str]:
             if pmid_el.text:
                 out[pmid_el.text] = " ".join(sections)
         return out
-    except Exception:
-        return {}
+    except Exception as exc:
+        _logger.warning("research: pubmed_abstracts failed: %s", exc)
+        raise
 
 
-def _search_pubmed(query: str, max_results: int = 5) -> list[dict]:
-    pmids = _pubmed_search(query, max_results)
-    metadata = _pubmed_metadata(pmids)
-    abstracts = _pubmed_abstracts(pmids)
+def _search_pubmed(query: str, max_results: int = 5) -> tuple[list[dict], list[str]]:
+    errs: list[str] = []
+
+    try:
+        pmids = _pubmed_search(query, max_results)
+    except Exception as exc:
+        return [], [f"pubmed_search: {exc}"]
+
+    try:
+        metadata = _pubmed_metadata(pmids)
+    except Exception as exc:
+        metadata = {}
+        errs.append(f"pubmed_metadata: {exc}")
+
+    try:
+        abstracts = _pubmed_abstracts(pmids)
+    except Exception as exc:
+        abstracts = {}
+        errs.append(f"pubmed_abstracts: {exc}")
 
     papers = []
     for pmid in pmids:
@@ -279,7 +297,7 @@ def _search_pubmed(query: str, max_results: int = 5) -> list[dict]:
                 "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
             }
         )
-    return papers
+    return papers, errs
 
 
 # ── Semantic Scholar retrieval ────────────────────────────────────────────────
@@ -319,8 +337,9 @@ def _search_semantic_scholar(query: str, max_results: int = 5) -> list[dict]:
                 }
             )
         return papers
-    except Exception:
-        return []
+    except Exception as exc:
+        _logger.warning("research: semantic_scholar failed: %s", exc)
+        raise
 
 
 # ── Merge & deduplicate ───────────────────────────────────────────────────────
@@ -337,10 +356,16 @@ def _deduplicate(pubmed: list[dict], ss: list[dict]) -> list[dict]:
     return merged
 
 
-def _retrieve_papers(query: str, max_per_source: int = 5) -> list[dict]:
-    pubmed = _search_pubmed(query, max_per_source)
-    ss = _search_semantic_scholar(query, max_per_source)
-    return _deduplicate(pubmed, ss)
+def _retrieve_papers(query: str, max_per_source: int = 5) -> tuple[list[dict], list[str]]:
+    errs: list[str] = []
+    pubmed, pubmed_errs = _search_pubmed(query, max_per_source)
+    errs.extend(pubmed_errs)
+    try:
+        ss = _search_semantic_scholar(query, max_per_source)
+    except Exception as exc:
+        ss = []
+        errs.append(f"semantic_scholar: {exc}")
+    return _deduplicate(pubmed, ss), errs
 
 
 # ── Prompt helpers ────────────────────────────────────────────────────────────
@@ -464,6 +489,8 @@ def _validate_citations(
 
 
 async def run(state: MigraineState) -> dict:
+    run_errors: list[dict] = []
+
     question, is_auto = _extract_question(state)
     if not question:
         return {
@@ -476,8 +503,20 @@ async def run(state: MigraineState) -> dict:
         }
 
     # For user-typed questions, reformulate into a PubMed-optimized query.
-    # The original question is preserved for the LLM synthesis context.
-    search_query = question if is_auto else await _reformulate_for_pubmed(question)
+    # The original question is preserved for the LLM context.
+    if is_auto:
+        search_query = question
+    else:
+        search_query, reform_err = await _reformulate_for_pubmed(question)
+        if reform_err:
+            run_errors.append(
+                {
+                    "node": "research",
+                    "step": "query_reformulation",
+                    "error": reform_err,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
 
     user_id = state.get("user_id")
 
@@ -491,9 +530,26 @@ async def run(state: MigraineState) -> dict:
             _logger.warning("research: KB retrieval failed for user %s: %s", user_id, exc)
             kb_failed = True
             kb_passages = []
+            run_errors.append(
+                {
+                    "node": "research",
+                    "step": "kb_retrieval",
+                    "error": str(exc),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            )
 
     # 2. Fetch live papers from PubMed + Semantic Scholar.
-    papers = await asyncio.to_thread(_retrieve_papers, search_query)
+    papers, retrieval_errors = await asyncio.to_thread(_retrieve_papers, search_query)
+    run_errors += [
+        {
+            "node": "research",
+            "step": "live_retrieval",
+            "error": e,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        for e in retrieval_errors
+    ]
 
     if not papers and not kb_passages:
         return {
@@ -515,14 +571,20 @@ async def run(state: MigraineState) -> dict:
             ]
         )
     except Exception as exc:
+        run_errors.append(
+            {
+                "node": "research",
+                "step": "llm_invoke",
+                "error": str(exc),
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
         return {
             "current_agent": "research",
             "messages": [
                 AIMessage(content=f"Research synthesis failed — AI service error: {exc}.")
             ],
-            "node_errors": [
-                {"node": "research", "error": str(exc), "timestamp": datetime.now(UTC).isoformat()}
-            ],
+            "node_errors": run_errors,
         }
 
     result, citations_stripped = _validate_citations(result, papers, kb_passages)
@@ -563,5 +625,8 @@ async def run(state: MigraineState) -> dict:
             await asyncio.to_thread(_cache_abstracts_sync, user_id, papers)
         except Exception as exc:
             _logger.warning("research: abstract cache write failed for user %s: %s", user_id, exc)
+
+    if run_errors:
+        updates["node_errors"] = run_errors
 
     return updates

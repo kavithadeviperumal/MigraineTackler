@@ -271,3 +271,4 @@ class AnalyzeResponse(BaseModel):
     messages: list[str]
     moh_alert: bool
     red_flag: bool
+    node_errors: list[dict] = []

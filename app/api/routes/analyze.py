@@ -30,6 +30,19 @@ async def get_state(current_user: User = Depends(get_current_user)):
         return {}
 
 
+@router.get("/state/me/errors")
+async def get_node_errors(current_user: User = Depends(get_current_user)):
+    """Return node_errors accumulated in the current session checkpoint."""
+    thread_id = f"user_{current_user.id}"
+    graph = get_graph()
+    config = {"configurable": {"thread_id": thread_id}}
+    try:
+        snapshot = await graph.aget_state(config)
+        return {"errors": snapshot.values.get("node_errors", [])}
+    except Exception:
+        return {"errors": []}
+
+
 @router.post("", response_model=AnalyzeResponse)
 @user_limiter.limit("20/minute")
 async def analyze(
@@ -83,4 +96,5 @@ async def analyze(
         messages=ai_messages,
         moh_alert=result.get("moh_alert_active", False),
         red_flag=result.get("red_flag_active", False),
+        node_errors=result.get("node_errors", []),
     )

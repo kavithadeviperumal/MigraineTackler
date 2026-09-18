@@ -222,6 +222,7 @@ async def run(state: MigraineState) -> dict:
             "node_errors": [
                 {
                     "node": "lifestyle_audit",
+                    "step": "llm_invoke",
                     "error": str(exc),
                     "timestamp": datetime.now(UTC).isoformat(),
                 }
